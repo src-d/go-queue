@@ -2,75 +2,85 @@ package queue
 
 import (
 	"fmt"
+	"testing"
 	"time"
 
-	. "gopkg.in/check.v1"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 	"gopkg.in/mgo.v2/bson"
 )
 
-var _ = Suite(&MemorySuite{})
+func TestMemorySuite(t *testing.T) {
+	suite.Run(t, new(MemorySuite))
+}
 
-type MemorySuite struct{}
+type MemorySuite struct {
+	suite.Suite
+}
 
-func (s *MemorySuite) TestIntegration(c *C) {
+func (s *MemorySuite) TestIntegration() {
+	assert := assert.New(s.T())
+
 	b := NewMemoryBroker()
 
 	q, err := b.Queue(bson.NewObjectId().Hex())
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	job := NewJob()
 	job.Encode(true)
 	err = q.Publish(job)
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	for i := 0; i < 100; i++ {
 		job := NewJob()
 		job.Encode(true)
 		err = q.Publish(job)
-		c.Assert(err, IsNil)
+		assert.NoError(err)
 	}
 
 	i, err := q.Consume()
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	retrievedJob, err := i.Next()
-	c.Assert(err, IsNil)
-	c.Assert(retrievedJob.Ack(), IsNil)
+	assert.NoError(err)
+	assert.NoError(retrievedJob.Ack())
 
 	var payload bool
 	err = retrievedJob.Decode(&payload)
-	c.Assert(err, IsNil)
-	c.Assert(payload, Equals, true)
+	assert.NoError(err)
+	assert.True(payload)
 
-	c.Assert(retrievedJob.ID, Equals, job.ID)
-	c.Assert(retrievedJob.Priority, Equals, job.Priority)
-	c.Assert(retrievedJob.Timestamp.Second(), Equals, job.Timestamp.Second())
+	assert.Equal(job.tag, retrievedJob.tag)
+	assert.Equal(job.Priority, retrievedJob.Priority)
+	assert.Equal(job.Timestamp.Second(), retrievedJob.Timestamp.Second())
 
 	err = i.Close()
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	err = b.Close()
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 }
 
-func (s *MemorySuite) TestDelayed(c *C) {
+func (s *MemorySuite) TestDelayed() {
+	assert := assert.New(s.T())
+
 	b := NewMemoryBroker()
 	q, err := b.Queue(bson.NewObjectId().Hex())
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	job := NewJob()
 	job.Encode("hello")
 	err = q.PublishDelayed(job, 1*time.Second)
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	i, err := q.Consume()
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	start := time.Now()
 	var since time.Duration
 	for {
 		j, err := i.Next()
-		c.Assert(err, IsNil)
+		assert.NoError(err)
 		if j == nil {
 			<-time.After(300 * time.Millisecond)
 			continue
@@ -79,31 +89,34 @@ func (s *MemorySuite) TestDelayed(c *C) {
 		since = time.Since(start)
 
 		var payload string
-		c.Assert(j.Decode(&payload), IsNil)
-		c.Assert(payload, Equals, "hello")
+		assert.NoError(j.Decode(&payload))
+		assert.Equal("hello", payload)
 		break
 	}
 
-	c.Assert(since >= 1*time.Second, Equals, true)
+	assert.True(since >= 1*time.Second)
 }
 
-func (s *MemorySuite) TestTransaction(c *C) {
+func (s *MemorySuite) TestTransaction() {
+	assert := assert.New(s.T())
+
 	b := NewMemoryBroker()
 	q, err := b.Queue(bson.NewObjectId().Hex())
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
-	c.Assert(q.Transaction(func(q Queue) error {
+	err = q.Transaction(func(q Queue) error {
 		q.Publish(NewJob())
 		return fmt.Errorf("err")
-	}), IsNil)
+	})
+	assert.NoError(err)
 
-	c.Assert(q.(*memoryQueue).jobs, HasLen, 0)
+	assert.Len(q.(*memoryQueue).jobs, 0)
 
-	c.Assert(q.Transaction(func(q Queue) error {
+	err = q.Transaction(func(q Queue) error {
 		q.Publish(NewJob())
 		q.PublishDelayed(NewJob(), 3*time.Minute)
 		return nil
-	}), IsNil)
-
-	c.Assert(q.(*memoryQueue).jobs, HasLen, 2)
+	})
+	assert.NoError(err)
+	assert.Len(q.(*memoryQueue).jobs, 2)
 }

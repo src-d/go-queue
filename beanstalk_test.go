@@ -1,97 +1,108 @@
 package queue
 
 import (
+	"testing"
 	"time"
 
-	. "gopkg.in/check.v1"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 	"gopkg.in/mgo.v2/bson"
 )
 
+func TestBeanstalkSuite(t *testing.T) {
+	suite.Run(t, new(BeanstalkSuite))
+}
+
 type BeanstalkSuite struct {
+	suite.Suite
 	broker Broker
 }
 
-var _ = Suite(&BeanstalkSuite{})
-
-func (s *BeanstalkSuite) SetUpSuite(c *C) {
+func (s *BeanstalkSuite) SetupSuite() {
+	assert := assert.New(s.T())
 	b, err := NewBeanstalkBroker("127.0.0.1:11300")
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 	s.broker = b
 }
 
-func (s *BeanstalkSuite) TearDownSuite(c *C) {
-	c.Assert(s.broker.Close(), IsNil)
+func (s *BeanstalkSuite) TearDownSuite() {
+	assert := assert.New(s.T())
+	assert.NoError(s.broker.Close())
 }
 
-func (s *BeanstalkSuite) TestPublishAndConsume(c *C) {
+func (s *BeanstalkSuite) TestPublishAndConsume() {
+	assert := assert.New(s.T())
+
 	q, err := s.broker.Queue(bson.NewObjectId().Hex())
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	job := NewJob()
 	job.Encode(true)
 	err = q.Publish(job)
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	for i := 0; i < 100; i++ {
 		job := NewJob()
 		job.Encode(i)
 		err = q.Publish(job)
-		c.Assert(err, IsNil)
+		assert.NoError(err)
 	}
 
 	i, err := q.Consume()
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	retrievedJob, err := i.Next()
-	c.Assert(err, IsNil)
-	c.Assert(retrievedJob.Ack(), IsNil)
+	assert.NoError(err)
+	assert.NoError(retrievedJob.Ack())
 
 	var payload bool
 	err = retrievedJob.Decode(&payload)
-	c.Assert(err, IsNil)
-	c.Assert(payload, Equals, true)
+	assert.NoError(err)
+	assert.True(payload)
 
-	c.Assert(retrievedJob.tag, Equals, job.tag)
-	c.Assert(retrievedJob.Priority, Equals, job.Priority)
-	c.Assert(retrievedJob.Timestamp.Second(), Equals, job.Timestamp.Second())
+	assert.Equal(job.tag, retrievedJob.tag)
+	assert.Equal(job.Priority, retrievedJob.Priority)
+	assert.Equal(job.Timestamp.Second(), retrievedJob.Timestamp.Second())
 
 	for k := 0; k < 100; k++ {
 		j, err := i.Next()
-		c.Assert(err, IsNil)
+		assert.NoError(err)
 		if j == nil {
 			break
 		}
 
-		c.Assert(j.Ack(), IsNil)
+		assert.NoError(j.Ack())
 		var payload int
-		c.Assert(j.Decode(&payload), IsNil)
-		c.Assert(payload, Equals, k)
+		assert.NoError(j.Decode(&payload))
+		assert.Equal(k, payload)
 	}
 
 	_, err = i.Next()
-	c.Assert(err, Not(IsNil))
+	assert.Error(err)
 
 	err = i.Close()
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 }
 
-func (s *BeanstalkSuite) TestDelayed(c *C) {
+func (s *BeanstalkSuite) TestDelayed() {
+	assert := assert.New(s.T())
+
 	q, err := s.broker.Queue(bson.NewObjectId().Hex())
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	job := NewJob()
 	job.Encode("hello")
 	err = q.PublishDelayed(job, 1*time.Second)
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	i, err := q.Consume()
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	start := time.Now()
 	var since time.Duration
 	for {
 		j, err := i.Next()
-		c.Assert(err, IsNil)
+		assert.NoError(err)
 		if j == nil {
 			<-time.After(300 * time.Millisecond)
 			continue
@@ -100,10 +111,10 @@ func (s *BeanstalkSuite) TestDelayed(c *C) {
 		since = time.Since(start)
 
 		var payload string
-		c.Assert(j.Decode(&payload), IsNil)
-		c.Assert(payload, Equals, "hello")
+		assert.NoError(j.Decode(&payload))
+		assert.Equal("hello", payload)
 		break
 	}
 
-	c.Assert(since >= 1*time.Second, Equals, true)
+	assert.True(since >= 1*time.Second)
 }

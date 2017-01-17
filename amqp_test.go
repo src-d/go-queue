@@ -5,96 +5,103 @@ import (
 	"testing"
 	"time"
 
-	. "gopkg.in/check.v1"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 	"gopkg.in/mgo.v2/bson"
 )
 
-func Test(t *testing.T) { TestingT(t) }
-
 const amqpURL = "amqp://guest:guest@localhost:5672/"
 
+func TestAMQPSuite(t *testing.T) {
+	suite.Run(t, new(AMQPSuite))
+}
+
 type AMQPSuite struct {
+	suite.Suite
 	broker Broker
 }
 
-var _ = Suite(&AMQPSuite{})
-
-func (s *AMQPSuite) SetUpSuite(c *C) {
+func (s *AMQPSuite) SetupSuite() {
+	assert := assert.New(s.T())
 	b, err := NewAMQPBroker(amqpURL)
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 	s.broker = b
 }
 
-func (s *AMQPSuite) TearDownSuite(c *C) {
-	c.Assert(s.broker.Close(), IsNil)
+func (s *AMQPSuite) TearDownSuite() {
+	assert := assert.New(s.T())
+	assert.NoError(s.broker.Close())
 }
 
-func (s *AMQPSuite) TestPublishAndConsume(c *C) {
+func (s *AMQPSuite) TestPublishAndConsume() {
+	assert := assert.New(s.T())
+
 	q, err := s.broker.Queue(bson.NewObjectId().Hex())
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	job := NewJob()
 	job.Encode(true)
 	err = q.Publish(job)
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	for i := 0; i < 100; i++ {
 		job := NewJob()
 		job.Encode(i)
 		err = q.Publish(job)
-		c.Assert(err, IsNil)
+		assert.NoError(err)
 	}
 
 	i, err := q.Consume()
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	retrievedJob, err := i.Next()
-	c.Assert(err, IsNil)
-	c.Assert(retrievedJob.Ack(), IsNil)
+	assert.NoError(err)
+	assert.Nil(retrievedJob.Ack())
 
 	var payload bool
 	err = retrievedJob.Decode(&payload)
-	c.Assert(err, IsNil)
-	c.Assert(payload, Equals, true)
+	assert.NoError(err)
+	assert.True(payload)
 
-	c.Assert(retrievedJob.ID, Equals, job.ID)
-	c.Assert(retrievedJob.Priority, Equals, job.Priority)
-	c.Assert(retrievedJob.Timestamp.Second(), Equals, job.Timestamp.Second())
+	assert.Equal(job.ID, retrievedJob.ID)
+	assert.Equal(job.Priority, retrievedJob.Priority)
+	assert.Equal(job.Timestamp.Second(), retrievedJob.Timestamp.Second())
 
 	for k := 0; k < 100; k++ {
 		j, err := i.Next()
-		c.Assert(err, IsNil)
+		assert.NoError(err)
 		if j == nil {
 			break
 		}
 
-		c.Assert(j.Ack(), IsNil)
+		assert.NoError(j.Ack())
 		var payload int
-		c.Assert(j.Decode(&payload), IsNil)
-		c.Assert(payload, Equals, k)
+		assert.NoError(j.Decode(&payload))
+		assert.Equal(k, payload)
 	}
 
-	err = i.Close()
-	c.Assert(err, IsNil)
+	assert.NoError(i.Close())
 }
 
-func (s *AMQPSuite) TestDelayed(c *C) {
+func (s *AMQPSuite) TestDelayed() {
+	assert := assert.New(s.T())
+
 	q, err := s.broker.Queue(bson.NewObjectId().Hex())
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	job := NewJob()
 	job.Encode("hello")
 	err = q.PublishDelayed(job, 1*time.Second)
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	i, err := q.Consume()
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	start := time.Now()
 	var since time.Duration
 	for {
 		j, err := i.Next()
-		c.Assert(err, IsNil)
+		assert.NoError(err)
 		if j == nil {
 			<-time.After(300 * time.Millisecond)
 			continue
@@ -103,54 +110,60 @@ func (s *AMQPSuite) TestDelayed(c *C) {
 		since = time.Since(start)
 
 		var payload string
-		c.Assert(j.Decode(&payload), IsNil)
-		c.Assert(payload, Equals, "hello")
+		assert.NoError(j.Decode(&payload))
+		assert.Equal("hello", payload)
 		break
 	}
 
-	c.Assert(since >= 1*time.Second, Equals, true)
+	assert.True(since >= 1*time.Second)
 }
 
-func (s *AMQPSuite) TestTransaction(c *C) {
+func (s *AMQPSuite) TestTransaction_Error() {
+	assert := assert.New(s.T())
+
 	q, err := s.broker.Queue(bson.NewObjectId().Hex())
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	err = q.Transaction(func(qu Queue) error {
 		job := NewJob()
-		c.Assert(job.Encode("goodbye"), IsNil)
-		c.Assert(qu.Publish(job), IsNil)
+		assert.NoError(job.Encode("goodbye"))
+		assert.NoError(qu.Publish(job))
 		return errors.New("foo")
 	})
-	c.Assert(err, Not(IsNil))
+	assert.Error(err)
 
 	i, err := q.Consume()
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 	go func() {
 		j, err := i.Next()
-		c.Assert(err, IsNil)
-		c.Assert(j, IsNil)
+		assert.NoError(err)
+		assert.Nil(j)
 	}()
 	<-time.After(50 * time.Millisecond)
-	c.Assert(i.Close(), IsNil)
+	assert.NoError(i.Close())
+}
 
-	q, err = s.broker.Queue(bson.NewObjectId().Hex())
-	c.Assert(err, IsNil)
+func (s *AMQPSuite) TestTransaction() {
+	assert := assert.New(s.T())
+
+	q, err := s.broker.Queue(bson.NewObjectId().Hex())
+	assert.NoError(err)
 
 	err = q.Transaction(func(q Queue) error {
 		job := NewJob()
-		c.Assert(job.Encode("hello"), IsNil)
-		c.Assert(q.Publish(job), IsNil)
+		assert.NoError(job.Encode("hello"))
+		assert.NoError(q.Publish(job))
 		return nil
 	})
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 
 	iter, err := q.Consume()
-	c.Assert(err, IsNil)
+	assert.NoError(err)
 	j, err := iter.Next()
-	c.Assert(err, IsNil)
-	c.Assert(j, Not(IsNil))
+	assert.NoError(err)
+	assert.NotNil(j)
 	var payload string
-	c.Assert(j.Decode(&payload), IsNil)
-	c.Assert(payload, Equals, "hello")
-	c.Assert(iter.Close(), IsNil)
+	assert.NoError(j.Decode(&payload))
+	assert.Equal("hello", payload)
+	assert.NoError(iter.Close())
 }
