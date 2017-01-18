@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kr/beanstalk"
+	"github.com/src-d/beanstalk"
 )
 
 type beanstalkBroker struct {
@@ -13,7 +13,12 @@ type beanstalkBroker struct {
 }
 
 func NewBeanstalkBroker(addr string) (Broker, error) {
-	conn, err := beanstalk.Dial("tcp", addr)
+	conn, err := beanstalk.Dial(&beanstalk.Config{
+		Network: "tcp",
+		Addr:    addr,
+		Retries: 10,
+		Delay:   time.Second * 10,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to beanstalk: %s", err)
 	}
