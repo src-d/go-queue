@@ -29,6 +29,8 @@ type Acknowledger interface {
 	Reject(requeue bool) error
 }
 
+// NewJob creates a new Job with default values, a new unique ID and current
+// timestamp.
 func NewJob() *Job {
 	return &Job{
 		ID:          bson.NewObjectId().Hex(),

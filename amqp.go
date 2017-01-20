@@ -283,7 +283,7 @@ type AMQPJobIter struct {
 func (i *AMQPJobIter) Next() (*Job, error) {
 	d, ok := <-i.c
 	if !ok {
-		return nil, nil
+		return nil, ErrAlreadyClosed
 	}
 
 	return fromDelivery(&d), nil

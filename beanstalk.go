@@ -1,7 +1,6 @@
 package queue
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -38,6 +37,8 @@ type beanstalkQueue struct {
 	tube *beanstalk.Tube
 }
 
+// Publish publishes a job to the queue. It does set the Job ID based on the
+// ID assigned by Beanstalkd.
 func (q *beanstalkQueue) Publish(j *Job) error {
 	if j == nil || len(j.raw) == 0 {
 		return ErrEmptyJob
@@ -45,6 +46,7 @@ func (q *beanstalkQueue) Publish(j *Job) error {
 
 	var err error
 	j.tag, err = q.tube.Put(j.raw, uint32(j.Priority), 0, 1*time.Minute)
+	j.ID = fmt.Sprint(j.tag)
 	return err
 }
 
@@ -59,7 +61,7 @@ func (q *beanstalkQueue) PublishDelayed(j *Job, delay time.Duration) error {
 }
 
 func (q *beanstalkQueue) Transaction(txcb TxCallback) error {
-	return errors.New("transactions not supported")
+	return ErrTxNotSupported
 }
 
 func (q *beanstalkQueue) Consume() (JobIter, error) {
@@ -70,11 +72,44 @@ func (q *beanstalkQueue) Consume() (JobIter, error) {
 }
 
 type beanstalkJobIter struct {
-	t    *beanstalk.TubeSet
-	name string
+	t      *beanstalk.TubeSet
+	name   string
+	closed bool
 }
 
 func (i *beanstalkJobIter) Next() (*Job, error) {
+	for {
+		if i.closed {
+			return nil, ErrAlreadyClosed
+		}
+
+		j, err := i.next()
+		if isBeanstalkTimeoutError(err) {
+			continue
+		}
+
+		return j, err
+	}
+}
+
+func isBeanstalkTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	cerr, ok := err.(beanstalk.ConnError)
+	if !ok {
+		return false
+	}
+
+	if cerr.Op != "reserve-with-timeout" {
+		return false
+	}
+
+	return cerr.Err.Error() == "timeout"
+}
+
+func (i *beanstalkJobIter) next() (*Job, error) {
 	id, body, err := i.t.Reserve(1 * time.Second)
 	if err != nil {
 		return nil, err
@@ -93,7 +128,10 @@ func (i *beanstalkJobIter) Next() (*Job, error) {
 	return j, nil
 }
 
-func (i *beanstalkJobIter) Close() error { return nil }
+func (i *beanstalkJobIter) Close() error {
+	i.closed = true
+	return nil
+}
 
 type beanstalkAcknowledger struct {
 	id   uint64

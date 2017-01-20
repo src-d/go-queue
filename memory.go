@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"io"
 	"sync"
 	"time"
 )
@@ -32,20 +33,28 @@ type memoryQueue struct {
 	publishImmediately bool
 }
 
-func (q *memoryQueue) Publish(job *Job) error {
+func (q *memoryQueue) Publish(j *Job) error {
+	if j == nil || len(j.raw) == 0 {
+		return ErrEmptyJob
+	}
+
 	q.Lock()
 	defer q.Unlock()
-	q.jobs = append(q.jobs, job)
+	q.jobs = append(q.jobs, j)
 	return nil
 }
 
-func (q *memoryQueue) PublishDelayed(job *Job, delay time.Duration) error {
+func (q *memoryQueue) PublishDelayed(j *Job, delay time.Duration) error {
+	if j == nil || len(j.raw) == 0 {
+		return ErrEmptyJob
+	}
+
 	if q.publishImmediately {
-		return q.Publish(job)
+		return q.Publish(j)
 	}
 	go func() {
 		<-time.After(delay)
-		q.Publish(job)
+		q.Publish(j)
 	}()
 	return nil
 }
@@ -53,7 +62,7 @@ func (q *memoryQueue) PublishDelayed(job *Job, delay time.Duration) error {
 func (q *memoryQueue) Transaction(txcb TxCallback) error {
 	txQ := &memoryQueue{jobs: make([]*Job, 0, 10), publishImmediately: true}
 	if err := txcb(txQ); err != nil {
-		return nil
+		return err
 	}
 
 	q.jobs = append(q.jobs, txQ.jobs...)
@@ -61,38 +70,62 @@ func (q *memoryQueue) Transaction(txcb TxCallback) error {
 }
 
 func (q *memoryQueue) Consume() (JobIter, error) {
-	return &memoryJobIter{&q.jobs, &q.idx, &q.RWMutex}, nil
+	return &memoryJobIter{q: q, RWMutex: &q.RWMutex}, nil
 }
 
 type memoryJobIter struct {
-	jobs *[]*Job
-	idx  *int
+	q      *memoryQueue
+	closed bool
 	*sync.RWMutex
 }
 
-type mockAcknowledger struct{}
+type memoryAck struct {
+	q *memoryQueue
+	j *Job
+}
 
-func (*mockAcknowledger) Ack() error {
+func (*memoryAck) Ack() error {
 	return nil
 }
 
-func (*mockAcknowledger) Reject(requeue bool) error {
-	return nil
+func (a *memoryAck) Reject(requeue bool) error {
+	if !requeue {
+		return nil
+	}
+
+	return a.q.Publish(a.j)
 }
 
 func (i *memoryJobIter) Next() (*Job, error) {
+	for {
+		if i.closed {
+			return nil, ErrAlreadyClosed
+		}
+
+		j, err := i.next()
+		if err != nil {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		return j, nil
+	}
+}
+
+func (i *memoryJobIter) next() (*Job, error) {
 	i.Lock()
 	defer i.Unlock()
-	if len(*i.jobs) <= *i.idx {
-		return nil, nil
+	if len(i.q.jobs) <= i.q.idx {
+		return nil, io.EOF
 	}
-	j := (*i.jobs)[*i.idx]
-	(*i.idx)++
+	j := i.q.jobs[i.q.idx]
+	i.q.idx++
 	j.tag = 1
-	j.acknowledger = &mockAcknowledger{}
+	j.acknowledger = &memoryAck{j: j, q: i.q}
 	return j, nil
 }
 
 func (i *memoryJobIter) Close() error {
+	i.closed = true
 	return nil
 }
