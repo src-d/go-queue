@@ -23,9 +23,8 @@ var (
 )
 
 const (
-	protoAMQP      string = "amqp"
-	protoBeanstalk        = "beanstalk"
-	protoMemory           = "memory"
+	protoAMQP   string = "amqp"
+	protoMemory        = "memory"
 )
 
 type Broker interface {
@@ -35,7 +34,6 @@ type Broker interface {
 
 // NewBroker creates a new Broker based on the given URI. Possible URIs are
 //   amqp://<host>[:port]
-//   beanstalk://<host>[:port]
 //   memory://
 func NewBroker(uri string) (Broker, error) {
 	url, err := url.Parse(uri)
@@ -46,8 +44,6 @@ func NewBroker(uri string) (Broker, error) {
 	switch url.Scheme {
 	case protoAMQP:
 		return NewAMQPBroker(uri)
-	case protoBeanstalk:
-		return NewBeanstalkBroker(uri[len(protoBeanstalk)+3:])
 	case protoMemory:
 		return NewMemoryBroker(), nil
 	default:

@@ -23,7 +23,6 @@ func newName() string {
 
 const (
 	testAMQPURI      = "amqp://localhost:5672"
-	testBeanstalkURI = "beanstalk://localhost:11300"
 	testMemoryURI    = "memory://"
 )
 
@@ -36,14 +35,6 @@ func TestNewBroker(t *testing.T) {
 	assert.NoError(b.Close())
 
 	b, err = NewBroker("amqp://badurl")
-	assert.Error(err)
-
-	b, err = NewBroker(testBeanstalkURI)
-	assert.NoError(err)
-	assert.IsType(&beanstalkBroker{}, b)
-	assert.NoError(b.Close())
-
-	b, err = NewBroker("beanstalk://badurl")
 	assert.Error(err)
 
 	b, err = NewBroker(testMemoryURI)
