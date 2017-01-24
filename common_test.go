@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -20,12 +21,66 @@ func newName() string {
 	return fmt.Sprintf("queue_tests_%d", testRand.Int())
 }
 
+const (
+	testAMQPURI      = "amqp://localhost:5672"
+	testBeanstalkURI = "beanstalk://localhost:11300"
+	testMemoryURI    = "memory://"
+)
+
+func TestNewBroker(t *testing.T) {
+	assert := assert.New(t)
+
+	b, err := NewBroker(testAMQPURI)
+	assert.NoError(err)
+	assert.IsType(&AMQPBroker{}, b)
+	assert.NoError(b.Close())
+
+	b, err = NewBroker("amqp://badurl")
+	assert.Error(err)
+
+	b, err = NewBroker(testBeanstalkURI)
+	assert.NoError(err)
+	assert.IsType(&beanstalkBroker{}, b)
+	assert.NoError(b.Close())
+
+	b, err = NewBroker("beanstalk://badurl")
+	assert.Error(err)
+
+	b, err = NewBroker(testMemoryURI)
+	assert.NoError(err)
+	assert.IsType(&memoryBroker{}, b)
+	assert.NoError(b.Close())
+
+	b, err = NewBroker("memory://anything")
+	assert.NoError(err)
+	assert.IsType(&memoryBroker{}, b)
+	assert.NoError(b.Close())
+
+	b, err = NewBroker("badproto://badurl")
+	assert.Equal(ErrUnsupportedProtocol, err)
+
+	b, err = NewBroker("foo://host%10")
+	assert.Error(err)
+}
+
 type QueueSuite struct {
 	suite.Suite
 	r rand.Rand
 
 	TxNotSupported bool
-	Broker         Broker
+	BrokerURI      string
+
+	Broker Broker
+}
+
+func (s *QueueSuite) SetupTest() {
+	b, err := NewBroker(s.BrokerURI)
+	s.NoError(err)
+	s.Broker = b
+}
+
+func (s *QueueSuite) TearDownTest() {
+	s.NoError(s.Broker.Close())
 }
 
 func (s *QueueSuite) TestConsume_empty() {

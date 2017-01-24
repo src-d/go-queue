@@ -16,12 +16,7 @@ type MemorySuite struct {
 }
 
 func (s *MemorySuite) SetupSuite() {
-	s.Broker = NewMemoryBroker()
-}
-
-func (s *MemorySuite) TearDownSuite() {
-	assert := assert.New(s.T())
-	assert.NoError(s.Broker.Close())
+	s.BrokerURI = testMemoryURI
 }
 
 func (s *MemorySuite) TestIntegration() {
