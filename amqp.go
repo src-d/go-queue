@@ -7,20 +7,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	log15 "gopkg.in/inconshreveable/log15.v2"
-
 	"github.com/streadway/amqp"
+	log15 "gopkg.in/inconshreveable/log15.v2"
 )
 
 var consumerSeq uint64
 
 type AMQPBroker struct {
-	mut  sync.RWMutex
-	conn *amqp.Connection
-	ch   *amqp.Channel
-
+	mut        sync.RWMutex
+	conn       *amqp.Connection
+	ch         *amqp.Channel
 	connErrors chan *amqp.Error
-	chanErrors chan *amqp.Error
 	stop       chan struct{}
 }
 
@@ -41,61 +38,61 @@ func NewAMQPBroker(url string) (Broker, error) {
 	}
 
 	b := &AMQPBroker{
-		conn:       conn,
-		ch:         ch,
-		connErrors: make(chan *amqp.Error),
-		chanErrors: make(chan *amqp.Error),
-		stop:       make(chan struct{}),
+		conn: conn,
+		ch:   ch,
+		stop: make(chan struct{}),
 	}
 
-	ch.NotifyClose(b.chanErrors)
-	conn.NotifyClose(b.connErrors)
 	go b.manageConnection(url)
 
 	return b, nil
 }
 
 func connect(url string) (*amqp.Connection, *amqp.Channel) {
+	// first try to connect again
+	var conn *amqp.Connection
+	var err error
 	for {
-		conn, err := amqp.Dial(url)
-		if err == nil {
-			ch, err := conn.Channel()
-			if err == nil {
-				return conn, ch
-			}
-			log15.Error("error creatting channel", "err", err.Error())
-		} else {
-			log15.Error("error connecting to amqp", "err", err.Error())
+		conn, err = amqp.Dial(url)
+		if err != nil {
+			log15.Error("error connecting to amqp", "err", err)
+			<-time.After(1 * time.Second)
+			continue
 		}
 
-		<-time.After(500 * time.Millisecond)
+		break
 	}
+
+	// try to get the channel again
+	var ch *amqp.Channel
+	for {
+		ch, err = conn.Channel()
+		if err != nil {
+			log15.Error("error creatting channel", "err", err)
+			<-time.After(1 * time.Second)
+			continue
+		}
+
+		break
+	}
+
+	return conn, ch
 }
 
 func (b *AMQPBroker) manageConnection(url string) {
-	var err error
+	b.connErrors = make(chan *amqp.Error)
+	b.conn.NotifyClose(b.connErrors)
+
 	for {
 		select {
-		case err = <-b.connErrors:
-			log15.Error("amqp connection error", "err", err.Error())
-
+		case err := <-b.connErrors:
+			log15.Error("amqp connection error", "err", err)
 			b.mut.Lock()
-			b.conn, b.ch = connect(url)
-			b.conn.NotifyClose(b.connErrors)
-			b.ch.NotifyClose(b.chanErrors)
-			b.mut.Unlock()
-		case err = <-b.chanErrors:
-			log15.Error("amqp channel closed", "err", err.Error())
-
-			b.mut.Lock()
-			b.ch, err = b.conn.Channel()
 			if err != nil {
-				log15.Error("unable to open channel", "err", err.Error())
-				go func() {
-					b.connErrors <- amqp.ErrClosed
-				}()
-			} else {
-				b.ch.NotifyClose(b.chanErrors)
+				b.conn, b.ch = connect(url)
+
+				b.connErrors = make(chan *amqp.Error)
+				b.conn.NotifyClose(b.connErrors)
 			}
 			b.mut.Unlock()
 		case <-b.stop:
