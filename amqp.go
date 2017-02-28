@@ -13,6 +13,7 @@ import (
 
 var consumerSeq uint64
 
+// AMQPBroker implements the Broker interface for AMQP.
 type AMQPBroker struct {
 	mut        sync.RWMutex
 	conn       *amqp.Connection
@@ -26,6 +27,7 @@ type connection interface {
 	channel() *amqp.Channel
 }
 
+// NewAMQPBroker creates a new AMQPBroker.
 func NewAMQPBroker(url string) (Broker, error) {
 	conn, err := amqp.Dial(url)
 	if err != nil {
@@ -113,6 +115,7 @@ func (b *AMQPBroker) channel() *amqp.Channel {
 	return b.ch
 }
 
+// Queue returns the queue with the given name.
 func (b *AMQPBroker) Queue(name string) (Queue, error) {
 	q, err := b.ch.QueueDeclare(
 		name,  // name
@@ -130,6 +133,7 @@ func (b *AMQPBroker) Queue(name string) (Queue, error) {
 	return &AMQPQueue{conn: b, queue: q}, nil
 }
 
+// Close closes all the connections managed by the broker.
 func (b *AMQPBroker) Close() error {
 	close(b.stop)
 	if err := b.channel().Close(); err != nil {
@@ -143,11 +147,13 @@ func (b *AMQPBroker) Close() error {
 	return nil
 }
 
+// AMQPQueue implements the Queue interface for the AMQP.
 type AMQPQueue struct {
 	conn  connection
 	queue amqp.Queue
 }
 
+// Publish publishes the given Job to the Queue.
 func (q *AMQPQueue) Publish(j *Job) error {
 	if j == nil || len(j.raw) == 0 {
 		return ErrEmptyJob
@@ -169,6 +175,7 @@ func (q *AMQPQueue) Publish(j *Job) error {
 	)
 }
 
+// PublishDelayed publishes the given Job with a given delay.
 func (q *AMQPQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	if j == nil || len(j.raw) == 0 {
 		return ErrEmptyJob
@@ -208,6 +215,7 @@ func (q *AMQPQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	)
 }
 
+// Transaction executes the given callback inside a transaction.
 func (q *AMQPQueue) Transaction(txcb TxCallback) error {
 	ch, err := q.conn.connection().Channel()
 	if err != nil {
@@ -242,6 +250,7 @@ func (q *AMQPQueue) Transaction(txcb TxCallback) error {
 	return nil
 }
 
+// Consume returns a JobIter for the given queue.
 func (q *AMQPQueue) Consume() (JobIter, error) {
 	ch, err := q.conn.connection().Channel()
 	if err != nil {
@@ -271,12 +280,14 @@ func (q *AMQPQueue) consumeID() string {
 	)
 }
 
+// AMQP implements the JobIter interface for AMQP.
 type AMQPJobIter struct {
 	id string
 	ch *amqp.Channel
 	c  <-chan amqp.Delivery
 }
 
+// Next returns the next job in the iter.
 func (i *AMQPJobIter) Next() (*Job, error) {
 	d, ok := <-i.c
 	if !ok {
@@ -286,6 +297,7 @@ func (i *AMQPJobIter) Next() (*Job, error) {
 	return fromDelivery(&d), nil
 }
 
+// Close closes the channel of the JobIter.
 func (i *AMQPJobIter) Close() error {
 	if err := i.ch.Cancel(i.id, false); err != nil {
 		return err
@@ -294,15 +306,18 @@ func (i *AMQPJobIter) Close() error {
 	return i.ch.Close()
 }
 
+// AMQPAcknowledger implements the Acknowledger for AMQP.
 type AMQPAcknowledger struct {
 	ack amqp.Acknowledger
 	id  uint64
 }
 
+// Ack signals ackwoledgement.
 func (a *AMQPAcknowledger) Ack() error {
 	return a.ack.Ack(a.id, false)
 }
 
+// Reject signals rejection.
 func (a *AMQPAcknowledger) Reject(requeue bool) error {
 	return a.ack.Reject(a.id, requeue)
 }

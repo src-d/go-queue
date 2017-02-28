@@ -10,10 +10,12 @@ type memoryBroker struct {
 	queues map[string]Queue
 }
 
+// Creates a new Broker for an in-memory queue.
 func NewMemoryBroker() Broker {
 	return &memoryBroker{make(map[string]Queue)}
 }
 
+// Queue returns the queue with the given name.
 func (b *memoryBroker) Queue(name string) (Queue, error) {
 	if _, ok := b.queues[name]; !ok {
 		b.queues[name] = &memoryQueue{jobs: make([]*Job, 0, 10)}
@@ -22,6 +24,7 @@ func (b *memoryBroker) Queue(name string) (Queue, error) {
 	return b.queues[name], nil
 }
 
+// Close closes the connection in the Broker.
 func (b *memoryBroker) Close() error {
 	return nil
 }
@@ -33,6 +36,7 @@ type memoryQueue struct {
 	publishImmediately bool
 }
 
+// Publish publishes a Job to the queue.
 func (q *memoryQueue) Publish(j *Job) error {
 	if j == nil || len(j.raw) == 0 {
 		return ErrEmptyJob
@@ -44,6 +48,7 @@ func (q *memoryQueue) Publish(j *Job) error {
 	return nil
 }
 
+// PublishDelayed publishes a Job to the queue with a given delay.
 func (q *memoryQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	if j == nil || len(j.raw) == 0 {
 		return ErrEmptyJob
@@ -59,6 +64,7 @@ func (q *memoryQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	return nil
 }
 
+// Transaction calls the given callback inside a transaction.
 func (q *memoryQueue) Transaction(txcb TxCallback) error {
 	txQ := &memoryQueue{jobs: make([]*Job, 0, 10), publishImmediately: true}
 	if err := txcb(txQ); err != nil {
@@ -69,6 +75,7 @@ func (q *memoryQueue) Transaction(txcb TxCallback) error {
 	return nil
 }
 
+// Consume returns a JobIter for the jobs in the queue.
 func (q *memoryQueue) Consume() (JobIter, error) {
 	return &memoryJobIter{q: q, RWMutex: &q.RWMutex}, nil
 }
@@ -84,10 +91,13 @@ type memoryAck struct {
 	j *Job
 }
 
+// Ack is called when the Job has finished.
 func (*memoryAck) Ack() error {
 	return nil
 }
 
+// Reject is called when the Job has errored. The argument indicates whether the Job
+// should be put back in queue or not.
 func (a *memoryAck) Reject(requeue bool) error {
 	if !requeue {
 		return nil
@@ -96,6 +106,7 @@ func (a *memoryAck) Reject(requeue bool) error {
 	return a.q.Publish(a.j)
 }
 
+// Next returns the next job in the iter.
 func (i *memoryJobIter) Next() (*Job, error) {
 	for {
 		if i.closed {
@@ -125,6 +136,7 @@ func (i *memoryJobIter) next() (*Job, error) {
 	return j, nil
 }
 
+// Close closes the iter.
 func (i *memoryJobIter) Close() error {
 	i.closed = true
 	return nil
