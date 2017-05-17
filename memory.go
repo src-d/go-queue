@@ -30,7 +30,8 @@ func (b *memoryBroker) Close() error {
 }
 
 type memoryQueue struct {
-	jobs []*Job
+	jobs       []*Job
+	buriedJobs []*Job
 	sync.RWMutex
 	idx                int
 	publishImmediately bool
@@ -61,6 +62,13 @@ func (q *memoryQueue) PublishDelayed(j *Job, delay time.Duration) error {
 		<-time.After(delay)
 		q.Publish(j)
 	}()
+	return nil
+}
+
+func (q *memoryQueue) RepublishBuried() error {
+	for _, j := range q.buriedJobs {
+		q.Publish(j)
+	}
 	return nil
 }
 
@@ -97,9 +105,12 @@ func (*memoryAck) Ack() error {
 }
 
 // Reject is called when the Job has errored. The argument indicates whether the Job
-// should be put back in queue or not.
+// should be put back in queue or not.  If requeue is false, the job will go to the buried
+// queue until Queue.RepublishBuried() is called.
 func (a *memoryAck) Reject(requeue bool) error {
 	if !requeue {
+		// Send to the buried queue for later republishing
+		a.q.buriedJobs = append(a.q.buriedJobs, a.j)
 		return nil
 	}
 

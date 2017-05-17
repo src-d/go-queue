@@ -22,8 +22,8 @@ func newName() string {
 }
 
 const (
-	testAMQPURI      = "amqp://localhost:5672"
-	testMemoryURI    = "memory://"
+	testAMQPURI   = "amqp://localhost:5672"
+	testMemoryURI = "memory://"
 )
 
 func TestNewBroker(t *testing.T) {
@@ -129,7 +129,8 @@ func (s *QueueSuite) TestJob_Reject_no_requeue() {
 	assert.NoError(err)
 	assert.NotNil(j)
 
-	j.Reject(false)
+	err = j.Reject(false)
+	assert.NoError(err)
 
 	done := s.checkNextClosed(iter)
 	<-time.After(50 * time.Millisecond)
@@ -160,7 +161,8 @@ func (s *QueueSuite) TestJob_Reject_requeue() {
 	assert.NoError(err)
 	assert.NotNil(j)
 
-	j.Reject(true)
+	err = j.Reject(true)
+	assert.NoError(err)
 
 	j, err = iter.Next()
 	assert.NoError(err)
@@ -375,6 +377,68 @@ func (s *QueueSuite) TestTransaction_not_supported() {
 
 	err = q.Transaction(nil)
 	assert.Equal(ErrTxNotSupported, err)
+}
+
+func (s *QueueSuite) TestRetryQueue() {
+	assert := assert.New(s.T())
+
+	qName := newName()
+	q, err := s.Broker.Queue(qName)
+	assert.NoError(err)
+	assert.NotNil(q)
+
+	// 1: Publish jobs to the main queue.
+	j1 := NewJob()
+	err = j1.Encode(1)
+	assert.NoError(err)
+
+	err = q.Publish(j1)
+	assert.NoError(err)
+
+	j2 := NewJob()
+	err = j2.Encode(2)
+	assert.NoError(err)
+	err = q.Publish(j2)
+	assert.NoError(err)
+
+	// 2: consume and reject them.
+	iterMain, err := q.Consume()
+	assert.NoError(err)
+	assert.NotNil(iterMain)
+
+	jReject1, err := iterMain.Next()
+	assert.NoError(err)
+	assert.NotNil(jReject1)
+	// Jobs should go to the retry queue when rejected with requeue = false
+	err = jReject1.Reject(false)
+	assert.NoError(err)
+
+	jReject2, err := iterMain.Next()
+	assert.NoError(err)
+	assert.NotNil(jReject2)
+	err = jReject2.Reject(false)
+	assert.NoError(err)
+
+	// 3. republish the jobs in the retry queue.
+	err = q.RepublishBuried()
+	assert.NoError(err)
+
+	// 4. re-read the jobs on the main queue.
+	var payload int
+	jRepub1, err := iterMain.Next()
+	assert.NoError(jRepub1.Decode(&payload))
+	assert.Equal(1, payload)
+	assert.NoError(jRepub1.Ack())
+
+	jRepub2, err := iterMain.Next()
+	assert.NoError(jRepub2.Decode(&payload))
+	assert.Equal(2, payload)
+	assert.NoError(jRepub2.Ack())
+
+	done := s.checkNextClosed(iterMain)
+	assert.NoError(iterMain.Close())
+	iterMain.Close()
+	<- done
 }
 
 func (s *QueueSuite) checkNextClosed(iter JobIter) chan struct{} {

@@ -13,6 +13,10 @@ import (
 
 var consumerSeq uint64
 
+const buriedQueueSuffix = ".buriedQueue"
+const buriedQueueExchangeSuffix = ".buriedExchange"
+const buriedNonBlockingRetries = 3
+
 // AMQPBroker implements the Broker interface for AMQP.
 type AMQPBroker struct {
 	mut        sync.RWMutex
@@ -96,6 +100,7 @@ func (b *AMQPBroker) manageConnection(url string) {
 				b.connErrors = make(chan *amqp.Error)
 				b.conn.NotifyClose(b.connErrors)
 			}
+
 			b.mut.Unlock()
 		case <-b.stop:
 			return
@@ -115,27 +120,73 @@ func (b *AMQPBroker) channel() *amqp.Channel {
 	return b.ch
 }
 
+func (b *AMQPBroker) newBuriedQueue(mainQueueName string) (q amqp.Queue, rex string, err error) {
+	ch, err := b.conn.Channel()
+	if err != nil {
+		return
+	}
+
+	buriedName := mainQueueName + buriedQueueSuffix
+	rex = mainQueueName + buriedQueueExchangeSuffix
+
+	if err = ch.ExchangeDeclare(rex, "fanout", true, false, false, false, nil); err != nil {
+		return
+	}
+
+	q, err = b.ch.QueueDeclare(
+		buriedName,
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+
+	if err != nil {
+		return
+	}
+
+	if err = ch.QueueBind(buriedName, "", rex, true, nil); err != nil {
+		return
+	}
+
+	return
+}
+
 // Queue returns the queue with the given name.
 func (b *AMQPBroker) Queue(name string) (Queue, error) {
+	buriedQueue, rex, err := b.newBuriedQueue(name)
+	if err != nil {
+		return nil, err
+	}
+
 	q, err := b.ch.QueueDeclare(
 		name,  // name
 		true,  // durable
 		false, // delete when unused
 		false, // exclusive
 		false, // no-wait
-		nil,   // arguments
+		amqp.Table{
+			"x-dead-letter-exchange":    rex,
+			"x-dead-letter-routing-key": name,
+		},
 	)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &AMQPQueue{conn: b, queue: q}, nil
+	return &AMQPQueue{
+		conn:        b,
+		queue:       q,
+		buriedQueue: &AMQPQueue{conn: b, queue: buriedQueue},
+	}, nil
 }
 
 // Close closes all the connections managed by the broker.
 func (b *AMQPBroker) Close() error {
 	close(b.stop)
+
 	if err := b.channel().Close(); err != nil {
 		return err
 	}
@@ -149,8 +200,9 @@ func (b *AMQPBroker) Close() error {
 
 // AMQPQueue implements the Queue interface for the AMQP.
 type AMQPQueue struct {
-	conn  connection
-	queue amqp.Queue
+	conn        connection
+	queue       amqp.Queue
+	buriedQueue *AMQPQueue
 }
 
 // Publish publishes the given Job to the Queue.
@@ -175,7 +227,8 @@ func (q *AMQPQueue) Publish(j *Job) error {
 	)
 }
 
-// PublishDelayed publishes the given Job with a given delay.
+// PublishDelayed publishes the given Job with a given delay. Delayed messages
+// wont go into the buried queue if they fail.
 func (q *AMQPQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	if j == nil || len(j.raw) == 0 {
 		return ErrEmptyJob
@@ -200,7 +253,7 @@ func (q *AMQPQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	}
 
 	return q.conn.channel().Publish(
-		"",
+		"", // exchange
 		delayedQueue.Name,
 		false,
 		false,
@@ -215,12 +268,72 @@ func (q *AMQPQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	)
 }
 
+// RepublishBuried will republish in the main queue all the jobs that timed out without Ack
+// or were Rejected with requeue = False.
+func (q *AMQPQueue) RepublishBuried() error {
+	var buriedJobs []*Job
+	err := q.getBuriedJobs(&buriedJobs)
+	if err != nil {
+		return err
+	}
+
+	for _, j := range buriedJobs {
+		if err = q.Publish(j); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (q *AMQPQueue) getBuriedJobs(jobs *[]*Job) error {
+	if q.buriedQueue == nil {
+		return fmt.Errorf("buriedQueue is nil, called RepublishBuried on the internal buried queue?")
+	}
+
+	iter, err := q.buriedQueue.Consume()
+	if err != nil {
+		return err
+	}
+
+	defer iter.Close()
+
+	retries := 0
+	for {
+		j, err := iter.(*AMQPJobIter).nextNonBlocking()
+		if err != nil {
+			return err
+		}
+
+		if j == nil {
+			// check (in non blocking mode) up to "buriedNonBlockingRetries" with
+			// a small delay between them just in case some job is arriving, return
+			// if there is nothing after all the retries (meaning: BuriedQueue is surely
+			// empty or any arriving jobs will have to wait to the next call).
+			if retries > buriedNonBlockingRetries {
+				return nil
+			}
+
+			time.Sleep(50 * time.Millisecond)
+			retries++
+			continue
+		}
+
+		if err = j.Ack(); err != nil {
+			return err
+		}
+
+		retries = 0
+		*jobs = append(*jobs, j)
+	}
+}
+
 // Transaction executes the given callback inside a transaction.
 func (q *AMQPQueue) Transaction(txcb TxCallback) error {
 	ch, err := q.conn.connection().Channel()
 	if err != nil {
 		return fmt.Errorf("failed to open a channel: %s", err)
 	}
+
 	defer ch.Close()
 
 	if err := ch.Tx(); err != nil {
@@ -240,6 +353,7 @@ func (q *AMQPQueue) Transaction(txcb TxCallback) error {
 		if err := ch.TxRollback(); err != nil {
 			return err
 		}
+
 		return err
 	}
 
@@ -280,7 +394,7 @@ func (q *AMQPQueue) consumeID() string {
 	)
 }
 
-// AMQP implements the JobIter interface for AMQP.
+// AMQPJobIter implements the JobIter interface for AMQP.
 type AMQPJobIter struct {
 	id string
 	ch *amqp.Channel
@@ -295,6 +409,19 @@ func (i *AMQPJobIter) Next() (*Job, error) {
 	}
 
 	return fromDelivery(&d), nil
+}
+
+func (i *AMQPJobIter) nextNonBlocking() (*Job, error) {
+	select {
+	case d, ok := <-i.c:
+		if !ok {
+			return nil, ErrAlreadyClosed
+		}
+
+		return fromDelivery(&d), nil
+	default:
+		return nil, nil
+	}
 }
 
 // Close closes the channel of the JobIter.
@@ -317,7 +444,8 @@ func (a *AMQPAcknowledger) Ack() error {
 	return a.ack.Ack(a.id, false)
 }
 
-// Reject signals rejection.
+// Reject signals rejection. If requeue is false, the job will go to the buried
+// queue until Queue.RepublishBuried() is called.
 func (a *AMQPAcknowledger) Reject(requeue bool) error {
 	return a.ack.Reject(a.id, requeue)
 }

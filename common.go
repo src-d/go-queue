@@ -78,6 +78,8 @@ type Queue interface {
 	Transaction(TxCallback) error
 	// Consume returns a JobIter for the queue.
 	Consume() (JobIter, error)
+	// RepublishBuried republish all jobs in the buried queue to the main one
+	RepublishBuried() error
 }
 
 // JobIter represents an iterator over a set of Jobs.
