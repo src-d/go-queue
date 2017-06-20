@@ -28,8 +28,10 @@ type Job struct {
 	tag          uint64
 }
 
-// Acknowledger represents the object in charge of acknowledgement management for a
-// job.
+// Acknowledger represents the object in charge of acknowledgement
+// management for a job.  When a job is acknowledged using any of the
+// functions in this interface, it will be considered delivered by the
+// queue.
 type Acknowledger interface {
 	// Ack is called when the Job has finished.
 	Ack() error
