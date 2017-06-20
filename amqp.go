@@ -373,7 +373,7 @@ func (q *AMQPQueue) Consume() (JobIter, error) {
 
 	// enforce prefetching only one job, if this is removed the whole queue
 	// will be consumed.
-	if err := ch.Qos(1, 0, false); err != nil {
+	if err := ch.Qos(2, 0, false); err != nil {
 		return nil, err
 	}
 
