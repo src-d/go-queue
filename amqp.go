@@ -290,8 +290,7 @@ func (q *AMQPQueue) getBuriedJobs(jobs *[]*Job) error {
 		return fmt.Errorf("buriedQueue is nil, called RepublishBuried on the internal buried queue?")
 	}
 
-	// enforce prefetching only one job
-	iter, err := q.buriedQueue.Consume(1)
+	iter, err := q.buriedQueue.Consume()
 	if err != nil {
 		return err
 	}
@@ -365,9 +364,8 @@ func (q *AMQPQueue) Transaction(txcb TxCallback) error {
 	return nil
 }
 
-// Implements Queue.  The advertisedWindow value will be the exact
-// number of undelivered jobs in transit, not just the minium.
-func (q *AMQPQueue) Consume(advertisedWindow int) (JobIter, error) {
+// Consume returns a JobIter for the given queue.
+func (q *AMQPQueue) Consume() (JobIter, error) {
 	ch, err := q.conn.connection().Channel()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open a channel: %s", err)
@@ -375,20 +373,12 @@ func (q *AMQPQueue) Consume(advertisedWindow int) (JobIter, error) {
 
 	// enforce prefetching only one job, if this is removed the whole queue
 	// will be consumed.
-	if err := ch.Qos(advertisedWindow, 0, false); err != nil {
+	if err := ch.Qos(1, 0, false); err != nil {
 		return nil, err
 	}
 
 	id := q.consumeID()
-	c, err := ch.Consume(
-		q.queue.Name, // queue
-		id,           // consumer
-		false,        // autoAck
-		false,        // exclusive
-		false,        // noLocal
-		false,        // noWait
-		nil,          // args
-	)
+	c, err := ch.Consume(q.queue.Name, id, false, false, false, false, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -83,8 +83,8 @@ func (q *memoryQueue) Transaction(txcb TxCallback) error {
 	return nil
 }
 
-// Consume implements Queue.  MemoryQueues have infinite advertised window.
-func (q *memoryQueue) Consume(_ int) (JobIter, error) {
+// Consume returns a JobIter for the jobs in the queue.
+func (q *memoryQueue) Consume() (JobIter, error) {
 	return &memoryJobIter{q: q, RWMutex: &q.RWMutex}, nil
 }
 

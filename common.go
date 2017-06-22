@@ -76,20 +76,17 @@ type Queue interface {
 	PublishDelayed(*Job, time.Duration) error
 	// Transaction executes the passed TxCallback inside a transaction.
 	Transaction(TxCallback) error
-	// Consume returns a JobIter for the queue.  Ir receives the minimum
-	// number of undelivered jobs the iterator will allow at any given
-	// time (see the Acknowledger interface).
-	Consume(advertisedWindow int) (JobIter, error)
+	// Consume returns a JobIter for the queue.
+	Consume() (JobIter, error)
 	// RepublishBuried republish all jobs in the buried queue to the main one
 	RepublishBuried() error
 }
 
 // JobIter represents an iterator over a set of Jobs.
 type JobIter interface {
-	// Next returns the next Job in the iterator. It should block until
-	// the job becomes available or while too many undelivered jobs has
-	// been already returned (see the argument to Queue.Consume). Returns
-	// ErrAlreadyClosed if the iterator is closed.
+	// Next returns the next Job in the iterator. It should block until the
+	// job becomes available. Returns ErrAlreadyClosed if the iterator is
+	// closed.
 	Next() (*Job, error)
 	io.Closer
 }
