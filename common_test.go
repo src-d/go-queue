@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -82,7 +83,8 @@ func (s *QueueSuite) TestConsume_empty() {
 	assert.NoError(err)
 	assert.NotNil(q)
 
-	iter, err := q.Consume()
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iter)
 
@@ -97,7 +99,8 @@ func (s *QueueSuite) TestJobIter_Next_empty() {
 	assert.NoError(err)
 	assert.NotNil(q)
 
-	iter, err := q.Consume()
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iter)
 
@@ -121,7 +124,8 @@ func (s *QueueSuite) TestJob_Reject_no_requeue() {
 	err = q.Publish(j)
 	assert.NoError(err)
 
-	iter, err := q.Consume()
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iter)
 
@@ -153,7 +157,8 @@ func (s *QueueSuite) TestJob_Reject_requeue() {
 	err = q.Publish(j)
 	assert.NoError(err)
 
-	iter, err := q.Consume()
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iter)
 
@@ -243,7 +248,8 @@ func (s *QueueSuite) TestPublishAndConsume_immediate_ack() {
 		timestamps = append(timestamps, j.Timestamp)
 	}
 
-	iter, err := q.Consume()
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iter)
 
@@ -266,6 +272,67 @@ func (s *QueueSuite) TestPublishAndConsume_immediate_ack() {
 	<-done
 }
 
+func (s *QueueSuite) TestConsumersCanShareJobIteratorConcurrently() {
+	assert := assert.New(s.T())
+	const (
+		nConsumers       int = 10
+		nJobs            int = nConsumers
+		advertisedWindow int = nConsumers
+	)
+	queue := s.newQueueWithJobs(nJobs)
+
+	// the iter will be shared by all consumers
+	iter, err := queue.Consume(advertisedWindow)
+	assert.NoError(err)
+	assert.NotNil(iter)
+
+	// attempt to start several consumers concurrently
+	// that never Ack or Reject their jobs
+	var allStarted sync.WaitGroup
+	allStarted.Add(nConsumers)
+	for i := 0; i < nConsumers; i++ {
+		go func() {
+			_, err := iter.Next()
+			assert.NoError(err)
+			allStarted.Done()
+		}()
+	}
+
+	// send true to the done channel when all consumers has started
+	done := make(chan bool)
+	go func() {
+		allStarted.Wait()
+		done <- true
+	}()
+
+	// wait until all consumers have started or fail after a give up period
+	giveUp := time.After(1 * time.Second)
+	select {
+	case <-done:
+		// nop, all consumers started concurrently just fine.
+	case <-giveUp:
+		assert.FailNow("Give up waiting for consumers to start")
+	}
+}
+
+// newQueueWithJobs creates and return a new queue with n jobs in it.
+func (s *QueueSuite) newQueueWithJobs(n int) Queue {
+	assert := assert.New(s.T())
+
+	queue, err := s.Broker.Queue(newName())
+	assert.NoError(err)
+
+	for i := 0; i < n; i++ {
+		job := NewJob()
+		err := job.Encode(i)
+		assert.NoError(err)
+		err = queue.Publish(job)
+		assert.NoError(err)
+	}
+
+	return queue
+}
+
 func (s *QueueSuite) TestDelayed() {
 	assert := assert.New(s.T())
 
@@ -280,7 +347,8 @@ func (s *QueueSuite) TestDelayed() {
 	err = q.PublishDelayed(j, 1*time.Second)
 	assert.NoError(err)
 
-	iter, err := q.Consume()
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 
 	start := time.Now()
@@ -324,7 +392,8 @@ func (s *QueueSuite) TestTransaction_Error() {
 	})
 	assert.Error(err)
 
-	i, err := q.Consume()
+	advertisedWindow := 1
+	i, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	done := s.checkNextClosed(i)
 	<-time.After(50 * time.Millisecond)
@@ -352,7 +421,8 @@ func (s *QueueSuite) TestTransaction() {
 	})
 	assert.NoError(err)
 
-	iter, err := q.Consume()
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	j, err := iter.Next()
 	assert.NoError(err)
@@ -402,7 +472,8 @@ func (s *QueueSuite) TestRetryQueue() {
 	assert.NoError(err)
 
 	// 2: consume and reject them.
-	iterMain, err := q.Consume()
+	advertisedWindow := 1
+	iterMain, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iterMain)
 
@@ -438,7 +509,7 @@ func (s *QueueSuite) TestRetryQueue() {
 	done := s.checkNextClosed(iterMain)
 	assert.NoError(iterMain.Close())
 	iterMain.Close()
-	<- done
+	<-done
 }
 
 func (s *QueueSuite) checkNextClosed(iter JobIter) chan struct{} {
