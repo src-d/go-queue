@@ -39,8 +39,8 @@ func (s *MemorySuite) TestIntegration() {
 		assert.NoError(err)
 	}
 
-	awnd := 0 // ignored by memory brokers
-	iter, err := q.Consume(awnd)
+	advertisedWindow := 0 // ignored by memory brokers
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 
 	retrievedJob, err := iter.Next()

@@ -83,8 +83,8 @@ func (s *QueueSuite) TestConsume_empty() {
 	assert.NoError(err)
 	assert.NotNil(q)
 
-	awnd := 1
-	iter, err := q.Consume(awnd)
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iter)
 
@@ -99,8 +99,8 @@ func (s *QueueSuite) TestJobIter_Next_empty() {
 	assert.NoError(err)
 	assert.NotNil(q)
 
-	awnd := 1
-	iter, err := q.Consume(awnd)
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iter)
 
@@ -124,8 +124,8 @@ func (s *QueueSuite) TestJob_Reject_no_requeue() {
 	err = q.Publish(j)
 	assert.NoError(err)
 
-	awnd := 1
-	iter, err := q.Consume(awnd)
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iter)
 
@@ -157,8 +157,8 @@ func (s *QueueSuite) TestJob_Reject_requeue() {
 	err = q.Publish(j)
 	assert.NoError(err)
 
-	awnd := 1
-	iter, err := q.Consume(awnd)
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iter)
 
@@ -248,8 +248,8 @@ func (s *QueueSuite) TestPublishAndConsume_immediate_ack() {
 		timestamps = append(timestamps, j.Timestamp)
 	}
 
-	awnd := 1
-	iter, err := q.Consume(awnd)
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iter)
 
@@ -275,14 +275,14 @@ func (s *QueueSuite) TestPublishAndConsume_immediate_ack() {
 func (s *QueueSuite) TestConsumersCanShareJobIteratorConcurrently() {
 	assert := assert.New(s.T())
 	const (
-		nConsumers int = 10
-		nJobs      int = nConsumers
-		awnd       int = nConsumers
+		nConsumers       int = 10
+		nJobs            int = nConsumers
+		advertisedWindow int = nConsumers
 	)
 	queue := s.newQueueWithJobs(nJobs)
 
 	// the iter will be shared by all consumers
-	iter, err := queue.Consume(awnd)
+	iter, err := queue.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iter)
 
@@ -347,8 +347,8 @@ func (s *QueueSuite) TestDelayed() {
 	err = q.PublishDelayed(j, 1*time.Second)
 	assert.NoError(err)
 
-	awnd := 1
-	iter, err := q.Consume(awnd)
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 
 	start := time.Now()
@@ -392,8 +392,8 @@ func (s *QueueSuite) TestTransaction_Error() {
 	})
 	assert.Error(err)
 
-	awnd := 1
-	i, err := q.Consume(awnd)
+	advertisedWindow := 1
+	i, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	done := s.checkNextClosed(i)
 	<-time.After(50 * time.Millisecond)
@@ -421,8 +421,8 @@ func (s *QueueSuite) TestTransaction() {
 	})
 	assert.NoError(err)
 
-	awnd := 1
-	iter, err := q.Consume(awnd)
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	j, err := iter.Next()
 	assert.NoError(err)
@@ -472,8 +472,8 @@ func (s *QueueSuite) TestRetryQueue() {
 	assert.NoError(err)
 
 	// 2: consume and reject them.
-	awnd := 1
-	iterMain, err := q.Consume(awnd)
+	advertisedWindow := 1
+	iterMain, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 	assert.NotNil(iterMain)
 
