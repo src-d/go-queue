@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"gopkg.in/mgo.v2/bson"
+	"github.com/satori/go.uuid"
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
@@ -44,7 +44,7 @@ type Acknowledger interface {
 // timestamp.
 func NewJob() *Job {
 	return &Job{
-		ID:          bson.NewObjectId().Hex(),
+		ID:          uuid.NewV4().String(),
 		Priority:    PriorityNormal,
 		Timestamp:   time.Now(),
 		contentType: msgpackContentType,
