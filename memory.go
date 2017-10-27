@@ -117,10 +117,16 @@ func (a *memoryAck) Reject(requeue bool) error {
 	return a.q.Publish(a.j)
 }
 
+func (i *memoryJobIter) isClosed() bool {
+	i.RLock()
+	defer i.RUnlock()
+	return i.closed
+}
+
 // Next returns the next job in the iter.
 func (i *memoryJobIter) Next() (*Job, error) {
 	for {
-		if i.closed {
+		if i.isClosed() {
 			return nil, ErrAlreadyClosed
 		}
 
@@ -149,6 +155,8 @@ func (i *memoryJobIter) next() (*Job, error) {
 
 // Close closes the iter.
 func (i *memoryJobIter) Close() error {
+	i.Lock()
+	defer i.Unlock()
 	i.closed = true
 	return nil
 }
