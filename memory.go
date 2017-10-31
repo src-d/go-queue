@@ -1,7 +1,6 @@
 package queue
 
 import (
-	"io"
 	"sync"
 	"time"
 )
@@ -144,7 +143,7 @@ func (i *memoryJobIter) next() (*Job, error) {
 	i.Lock()
 	defer i.Unlock()
 	if len(i.q.jobs) <= i.q.idx {
-		return nil, io.EOF
+		return nil, nil
 	}
 	j := i.q.jobs[i.q.idx]
 	i.q.idx++
