@@ -59,8 +59,9 @@ type QueueSuite struct {
 	suite.Suite
 	r rand.Rand
 
-	TxNotSupported bool
-	BrokerURI      string
+	TxNotSupported        bool
+	AdvWindowNotSupported bool
+	BrokerURI             string
 
 	Broker Broker
 }
@@ -136,10 +137,17 @@ func (s *QueueSuite) TestJob_Reject_no_requeue() {
 	err = j.Reject(false)
 	assert.NoError(err)
 
-	done := s.checkNextClosed(iter)
-	<-time.After(50 * time.Millisecond)
-	assert.NoError(iter.Close())
-	<-done
+	if s.AdvWindowNotSupported {
+		j, err := iter.Next()
+		assert.Nil(j)
+		assert.NoError(err)
+		assert.NoError(iter.Close())
+	} else {
+		done := s.checkNextClosed(iter)
+		<-time.After(50 * time.Millisecond)
+		assert.NoError(iter.Close())
+		<-done
+	}
 }
 
 func (s *QueueSuite) TestJob_Reject_requeue() {
@@ -395,10 +403,17 @@ func (s *QueueSuite) TestTransaction_Error() {
 	advertisedWindow := 1
 	i, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
-	done := s.checkNextClosed(i)
-	<-time.After(50 * time.Millisecond)
-	assert.NoError(i.Close())
-	<-done
+	if s.AdvWindowNotSupported {
+		j, err := i.Next()
+		assert.Nil(j)
+		assert.NoError(err)
+		assert.NoError(i.Close())
+	} else {
+		done := s.checkNextClosed(i)
+		<-time.After(50 * time.Millisecond)
+		assert.NoError(i.Close())
+		<-done
+	}
 }
 
 func (s *QueueSuite) TestTransaction() {
