@@ -43,8 +43,14 @@ type Acknowledger interface {
 // NewJob creates a new Job with default values, a new unique ID and current
 // timestamp.
 func NewJob() *Job {
+	u, err := uuid.NewV4()
+
+	if err != nil {
+		return nil
+	}
+
 	return &Job{
-		ID:          uuid.NewV4().String(),
+		ID:          u.String(),
 		Priority:    PriorityNormal,
 		Timestamp:   time.Now(),
 		contentType: msgpackContentType,
