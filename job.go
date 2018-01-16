@@ -44,7 +44,6 @@ type Acknowledger interface {
 // timestamp.
 func NewJob() *Job {
 	u, err := uuid.NewV4()
-
 	if err != nil {
 		return nil
 	}
