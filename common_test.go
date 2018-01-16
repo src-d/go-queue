@@ -118,7 +118,9 @@ func (s *QueueSuite) TestJob_Reject_no_requeue() {
 	assert.NoError(err)
 	assert.NotNil(q)
 
-	j := NewJob()
+	j, err := NewJob()
+	assert.NoError(err)
+
 	err = j.Encode(1)
 	assert.NoError(err)
 
@@ -158,7 +160,9 @@ func (s *QueueSuite) TestJob_Reject_requeue() {
 	assert.NoError(err)
 	assert.NotNil(q)
 
-	j := NewJob()
+	j, err := NewJob()
+	assert.NoError(err)
+
 	err = j.Encode(1)
 	assert.NoError(err)
 
@@ -246,7 +250,8 @@ func (s *QueueSuite) TestPublishAndConsume_immediate_ack() {
 		timestamps []time.Time
 	)
 	for i := 0; i < 100; i++ {
-		j := NewJob()
+		j, err := NewJob()
+		assert.NoError(err)
 		err = j.Encode(i)
 		assert.NoError(err)
 		err = q.Publish(j)
@@ -331,8 +336,9 @@ func (s *QueueSuite) newQueueWithJobs(n int) Queue {
 	assert.NoError(err)
 
 	for i := 0; i < n; i++ {
-		job := NewJob()
-		err := job.Encode(i)
+		job, err := NewJob()
+		assert.NoError(err)
+		err = job.Encode(i)
 		assert.NoError(err)
 		err = queue.Publish(job)
 		assert.NoError(err)
@@ -349,7 +355,8 @@ func (s *QueueSuite) TestDelayed() {
 	assert.NoError(err)
 	assert.NotNil(q)
 
-	j := NewJob()
+	j, err := NewJob()
+	assert.NoError(err)
 	err = j.Encode("hello")
 	assert.NoError(err)
 	err = q.PublishDelayed(j, 1*time.Second)
@@ -393,7 +400,8 @@ func (s *QueueSuite) TestTransaction_Error() {
 	assert.NotNil(q)
 
 	err = q.Transaction(func(qu Queue) error {
-		job := NewJob()
+		job, err := NewJob()
+		assert.NoError(err)
 		assert.NoError(job.Encode("goodbye"))
 		assert.NoError(qu.Publish(job))
 		return errors.New("foo")
@@ -429,7 +437,8 @@ func (s *QueueSuite) TestTransaction() {
 	assert.NotNil(q)
 
 	err = q.Transaction(func(q Queue) error {
-		job := NewJob()
+		job, err := NewJob()
+		assert.NoError(err)
 		assert.NoError(job.Encode("hello"))
 		assert.NoError(q.Publish(job))
 		return nil
@@ -473,14 +482,16 @@ func (s *QueueSuite) TestRetryQueue() {
 	assert.NotNil(q)
 
 	// 1: Publish jobs to the main queue.
-	j1 := NewJob()
+	j1, err := NewJob()
+	assert.NoError(err)
 	err = j1.Encode(1)
 	assert.NoError(err)
 
 	err = q.Publish(j1)
 	assert.NoError(err)
 
-	j2 := NewJob()
+	j2, err := NewJob()
+	assert.NoError(err)
 	err = j2.Encode(2)
 	assert.NoError(err)
 	err = q.Publish(j2)

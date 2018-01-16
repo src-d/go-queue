@@ -418,7 +418,7 @@ func (i *AMQPJobIter) Next() (*Job, error) {
 		return nil, ErrAlreadyClosed
 	}
 
-	return fromDelivery(&d), nil
+	return fromDelivery(&d)
 }
 
 func (i *AMQPJobIter) nextNonBlocking() (*Job, error) {
@@ -428,7 +428,7 @@ func (i *AMQPJobIter) nextNonBlocking() (*Job, error) {
 			return nil, ErrAlreadyClosed
 		}
 
-		return fromDelivery(&d), nil
+		return fromDelivery(&d)
 	default:
 		return nil, nil
 	}
@@ -460,8 +460,12 @@ func (a *AMQPAcknowledger) Reject(requeue bool) error {
 	return a.ack.Reject(a.id, requeue)
 }
 
-func fromDelivery(d *amqp.Delivery) *Job {
-	j := NewJob()
+func fromDelivery(d *amqp.Delivery) (*Job, error) {
+	j, err := NewJob()
+	if err != nil {
+		return nil, err
+	}
+
 	j.ID = d.MessageId
 	j.Priority = Priority(d.Priority)
 	j.Timestamp = d.Timestamp
@@ -470,5 +474,5 @@ func fromDelivery(d *amqp.Delivery) *Job {
 	j.tag = d.DeliveryTag
 	j.raw = d.Body
 
-	return j
+	return j, nil
 }

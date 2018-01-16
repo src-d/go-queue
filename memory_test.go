@@ -28,13 +28,17 @@ func (s *MemorySuite) TestIntegration() {
 	assert.NoError(err)
 	assert.NotNil(q)
 
-	j := NewJob()
+	j, err := NewJob()
+	assert.NoError(err)
+
 	j.Encode(true)
 	err = q.Publish(j)
 	assert.NoError(err)
 
 	for i := 0; i < 100; i++ {
-		job := NewJob()
+		job, err := NewJob()
+		assert.NoError(err)
+
 		job.Encode(true)
 		err = q.Publish(job)
 		assert.NoError(err)
