@@ -21,7 +21,7 @@ type Job struct {
 	Priority Priority
 	// Timestamp is the time of creation.
 	Timestamp time.Time
-	// Retries is the number of times this job was processed unsuccesfully.
+	// Retries is the number of times this job can be processed before being rejected.
 	Retries int
 	// ErrorType is the kind of error that made the job failing.
 	ErrorType string
