@@ -3,7 +3,6 @@ package queue
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -223,7 +222,7 @@ func (q *AMQPQueue) Publish(j *Job) error {
 
 	headers := amqp.Table{}
 	if j.Retries > 0 {
-		headers[retriesHeader] = fmt.Sprintf("%d", j.Retries)
+		headers[retriesHeader] = j.Retries
 	}
 
 	if j.ErrorType != "" {
@@ -480,17 +479,12 @@ func fromDelivery(d *amqp.Delivery) (*Job, error) {
 	j.raw = d.Body
 
 	if retries, ok := d.Headers[retriesHeader]; ok {
-		retries, ok := retries.(string)
+		retries, ok := retries.(int32)
 		if !ok {
 			return nil, ErrRetrievingHeader.New(retriesHeader, d.MessageId)
 		}
 
-		numRetries, err := strconv.Atoi(retries)
-		if err != nil {
-			return nil, ErrRetrievingHeader.New(retriesHeader, d.MessageId)
-		}
-
-		j.Retries = numRetries
+		j.Retries = retries
 	}
 
 	if errorType, ok := d.Headers[errorHeader]; ok {

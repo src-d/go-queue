@@ -22,7 +22,7 @@ type Job struct {
 	// Timestamp is the time of creation.
 	Timestamp time.Time
 	// Retries is the number of times this job can be processed before being rejected.
-	Retries int
+	Retries int32
 	// ErrorType is the kind of error that made the job failing.
 	ErrorType string
 
