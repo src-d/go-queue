@@ -9,7 +9,7 @@ import (
 
 	"github.com/streadway/amqp"
 	log15 "gopkg.in/inconshreveable/log15.v2"
-	errors "gopkg.in/src-d/go-errors.v0"
+	errors "gopkg.in/src-d/go-errors.v1"
 )
 
 var consumerSeq uint64
