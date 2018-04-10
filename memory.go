@@ -64,10 +64,18 @@ func (q *memoryQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	return nil
 }
 
-func (q *memoryQueue) RepublishBuried() error {
+// RepublishBuried implement the Queue interface.
+func (q *memoryQueue) RepublishBuried(comply RepublishConditionFunc) error {
 	for _, j := range q.buriedJobs {
-		q.Publish(j)
+		if comply(j) {
+			j.ErrorType = ""
+			if err := q.Publish(j); err != nil {
+				return err
+			}
+			// TODO: remove job fom q.buriedJobs
+		}
 	}
+
 	return nil
 }
 

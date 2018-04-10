@@ -288,9 +288,9 @@ func (q *AMQPQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	)
 }
 
-// RepublishBuried will republish in the main queue all the jobs that timed out without Ack
-// or were Rejected with requeue = False.
-func (q *AMQPQueue) RepublishBuried() error {
+// RepublishBuried will republish in the main queue those jobs that timed out without Ack
+// or were Rejected with requeue = False and and makes complay return true.
+func (q *AMQPQueue) RepublishBuried(comply RepublishConditionFunc) error {
 	if q.buriedQueue == nil {
 		return fmt.Errorf("buriedQueue is nil, called RepublishBuried on the internal buried queue?")
 	}
@@ -304,6 +304,7 @@ func (q *AMQPQueue) RepublishBuried() error {
 	defer iter.Close()
 
 	retries := 0
+	notComplying := make([]*Job, 0, 3)
 	for {
 		j, err := iter.(*AMQPJobIter).nextNonBlocking()
 		if err != nil {
@@ -316,7 +317,7 @@ func (q *AMQPQueue) RepublishBuried() error {
 			// if there is nothing after all the retries (meaning: BuriedQueue is surely
 			// empty or any arriving jobs will have to wait to the next call).
 			if retries > buriedNonBlockingRetries {
-				return nil
+				break
 			}
 
 			time.Sleep(50 * time.Millisecond)
@@ -324,16 +325,27 @@ func (q *AMQPQueue) RepublishBuried() error {
 			continue
 		}
 
-		if err = j.Ack(); err != nil {
-			return err
-		}
-
 		retries = 0
+		if comply(j) {
+			if err = j.Ack(); err != nil {
+				return err
+			}
 
-		if err = q.Publish(j); err != nil {
+			if err = q.Publish(j); err != nil {
+				return err
+			}
+		} else {
+			notComplying = append(notComplying, j)
+		}
+	}
+
+	for _, job := range notComplying {
+		if err = job.Reject(true); err != nil {
 			return err
 		}
 	}
+
+	return nil
 }
 
 // Transaction executes the given callback inside a transaction.
