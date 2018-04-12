@@ -3,6 +3,7 @@ package queue
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +19,7 @@ var (
 	ErrConnectionFailed = errors.NewKind("failed to connect to RabbitMQ: %s")
 	ErrOpenChannel      = errors.NewKind("failed to open a channel: %s")
 	ErrRetrievingHeader = errors.NewKind("error retrieving '%s' header from message %s")
+	ErrRepublishingJobs = errors.NewKind("couldn't republish some jobs : %s")
 )
 
 const (
@@ -288,6 +290,11 @@ func (q *AMQPQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	)
 }
 
+type jobErr struct {
+	job *Job
+	err error
+}
+
 // RepublishBuried will republish in the main queue those jobs that timed out without Ack
 // or were Rejected with requeue = False and and makes complay return true.
 func (q *AMQPQueue) RepublishBuried(comply RepublishConditionFunc) error {
@@ -304,7 +311,8 @@ func (q *AMQPQueue) RepublishBuried(comply RepublishConditionFunc) error {
 	defer iter.Close()
 
 	retries := 0
-	notComplying := make([]*Job, 0, 3)
+	var notComplying []*Job
+	var errorsPublishing []*jobErr
 	for {
 		j, err := iter.(*AMQPJobIter).nextNonBlocking()
 		if err != nil {
@@ -332,7 +340,7 @@ func (q *AMQPQueue) RepublishBuried(comply RepublishConditionFunc) error {
 			}
 
 			if err = q.Publish(j); err != nil {
-				return err
+				errorsPublishing = append(errorsPublishing, &jobErr{j, err})
 			}
 		} else {
 			notComplying = append(notComplying, j)
@@ -343,6 +351,22 @@ func (q *AMQPQueue) RepublishBuried(comply RepublishConditionFunc) error {
 		if err = job.Reject(true); err != nil {
 			return err
 		}
+	}
+
+	return handleRepublishErrors(errorsPublishing)
+}
+
+func handleRepublishErrors(list []*jobErr) error {
+	if len(list) > 1 {
+		stringErrors := []string{}
+		for _, je := range list {
+			stringErrors = append(stringErrors, je.err.Error())
+			if err := je.job.Reject(true); err != nil {
+				return err
+			}
+		}
+
+		return ErrRepublishingJobs.New(strings.Join(stringErrors, ": "))
 	}
 
 	return nil
