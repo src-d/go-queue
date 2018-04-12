@@ -71,6 +71,23 @@ type TxCallback func(q Queue) error
 // RepublishConditionFunc is a function used to filter jobs to republish.
 type RepublishConditionFunc func(job *Job) bool
 
+type republishConditions []RepublishConditionFunc
+
+func (c republishConditions) comply(job *Job) bool {
+	if len(c) == 0 {
+		c = []RepublishConditionFunc{
+			func(*Job) bool { return true },
+		}
+	}
+
+	var ok bool
+	for _, condition := range c {
+		ok = ok || condition(job)
+	}
+
+	return ok
+}
+
 // Queue represents a message queue.
 type Queue interface {
 	// Publish publishes the given Job to the queue.
@@ -84,8 +101,8 @@ type Queue interface {
 	// time (see the Acknowledger interface).
 	Consume(advertisedWindow int) (JobIter, error)
 	// RepublishBuried republish to the main queue those jobs complying
-	// the condition, leaving the rest of them in the buried queue.
-	RepublishBuried(comply RepublishConditionFunc) error
+	// one of the conditions, leaving the rest of them in the buried queue.
+	RepublishBuried(conditions ...RepublishConditionFunc) error
 }
 
 // JobIter represents an iterator over a set of Jobs.

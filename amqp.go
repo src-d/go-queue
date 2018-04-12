@@ -297,7 +297,7 @@ type jobErr struct {
 
 // RepublishBuried will republish in the main queue those jobs that timed out without Ack
 // or were Rejected with requeue = False and and makes complay return true.
-func (q *AMQPQueue) RepublishBuried(comply RepublishConditionFunc) error {
+func (q *AMQPQueue) RepublishBuried(conditions ...RepublishConditionFunc) error {
 	if q.buriedQueue == nil {
 		return fmt.Errorf("buriedQueue is nil, called RepublishBuried on the internal buried queue?")
 	}
@@ -334,7 +334,8 @@ func (q *AMQPQueue) RepublishBuried(comply RepublishConditionFunc) error {
 		}
 
 		retries = 0
-		if comply(j) {
+
+		if republishConditions(conditions).comply(j) {
 			if err = j.Ack(); err != nil {
 				return err
 			}

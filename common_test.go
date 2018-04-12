@@ -517,8 +517,7 @@ func (s *QueueSuite) TestRetryQueue() {
 	assert.NoError(err)
 
 	// 3. republish the jobs in the retry queue.
-	testCondition := func(*Job) bool { return true }
-	err = q.RepublishBuried(testCondition)
+	err = q.RepublishBuried()
 	assert.NoError(err)
 
 	// 4. re-read the jobs on the main queue.
