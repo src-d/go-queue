@@ -358,7 +358,7 @@ func (q *AMQPQueue) RepublishBuried(conditions ...RepublishConditionFunc) error 
 }
 
 func handleRepublishErrors(list []*jobErr) error {
-	if len(list) > 1 {
+	if len(list) > 0 {
 		stringErrors := []string{}
 		for _, je := range list {
 			stringErrors = append(stringErrors, je.err.Error())
