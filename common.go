@@ -75,17 +75,16 @@ type republishConditions []RepublishConditionFunc
 
 func (c republishConditions) comply(job *Job) bool {
 	if len(c) == 0 {
-		c = []RepublishConditionFunc{
-			func(*Job) bool { return true },
+		return true
+	}
+
+	for _, condition := range c {
+		if condition(job) {
+			return true
 		}
 	}
 
-	var ok bool
-	for _, condition := range c {
-		ok = ok || condition(job)
-	}
-
-	return ok
+	return false
 }
 
 // Queue represents a message queue.

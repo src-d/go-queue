@@ -296,7 +296,7 @@ type jobErr struct {
 }
 
 // RepublishBuried will republish in the main queue those jobs that timed out without Ack
-// or were Rejected with requeue = False and and makes complay return true.
+// or were Rejected with requeue = False and makes comply return true.
 func (q *AMQPQueue) RepublishBuried(conditions ...RepublishConditionFunc) error {
 	if q.buriedQueue == nil {
 		return fmt.Errorf("buriedQueue is nil, called RepublishBuried on the internal buried queue?")
@@ -335,16 +335,17 @@ func (q *AMQPQueue) RepublishBuried(conditions ...RepublishConditionFunc) error 
 
 		retries = 0
 
-		if republishConditions(conditions).comply(j) {
-			if err = j.Ack(); err != nil {
-				return err
-			}
+		if err = j.Ack(); err != nil {
+			return err
+		}
 
+		if republishConditions(conditions).comply(j) {
 			if err = q.Publish(j); err != nil {
 				errorsPublishing = append(errorsPublishing, &jobErr{j, err})
 			}
 		} else {
 			notComplying = append(notComplying, j)
+
 		}
 	}
 
@@ -354,15 +355,15 @@ func (q *AMQPQueue) RepublishBuried(conditions ...RepublishConditionFunc) error 
 		}
 	}
 
-	return handleRepublishErrors(errorsPublishing)
+	return q.handleRepublishErrors(errorsPublishing)
 }
 
-func handleRepublishErrors(list []*jobErr) error {
+func (q *AMQPQueue) handleRepublishErrors(list []*jobErr) error {
 	if len(list) > 0 {
 		stringErrors := []string{}
 		for _, je := range list {
 			stringErrors = append(stringErrors, je.err.Error())
-			if err := je.job.Reject(true); err != nil {
+			if err := q.buriedQueue.Publish(je.job); err != nil {
 				return err
 			}
 		}
