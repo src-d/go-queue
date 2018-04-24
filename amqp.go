@@ -219,7 +219,7 @@ type AMQPQueue struct {
 // Publish publishes the given Job to the Queue.
 func (q *AMQPQueue) Publish(j *Job) error {
 	if j == nil || len(j.raw) == 0 {
-		return ErrEmptyJob
+		return ErrEmptyJob.New()
 	}
 
 	headers := amqp.Table{}
@@ -252,7 +252,7 @@ func (q *AMQPQueue) Publish(j *Job) error {
 // wont go into the buried queue if they fail.
 func (q *AMQPQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	if j == nil || len(j.raw) == 0 {
-		return ErrEmptyJob
+		return ErrEmptyJob.New()
 	}
 
 	ttl := delay / time.Millisecond
@@ -457,7 +457,7 @@ type AMQPJobIter struct {
 func (i *AMQPJobIter) Next() (*Job, error) {
 	d, ok := <-i.c
 	if !ok {
-		return nil, ErrAlreadyClosed
+		return nil, ErrAlreadyClosed.New()
 	}
 
 	return fromDelivery(&d)
@@ -467,7 +467,7 @@ func (i *AMQPJobIter) nextNonBlocking() (*Job, error) {
 	select {
 	case d, ok := <-i.c:
 		if !ok {
-			return nil, ErrAlreadyClosed
+			return nil, ErrAlreadyClosed.New()
 		}
 
 		return fromDelivery(&d)

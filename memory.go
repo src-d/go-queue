@@ -39,7 +39,7 @@ type memoryQueue struct {
 // Publish publishes a Job to the queue.
 func (q *memoryQueue) Publish(j *Job) error {
 	if j == nil || len(j.raw) == 0 {
-		return ErrEmptyJob
+		return ErrEmptyJob.New()
 	}
 
 	q.Lock()
@@ -51,7 +51,7 @@ func (q *memoryQueue) Publish(j *Job) error {
 // PublishDelayed publishes a Job to the queue with a given delay.
 func (q *memoryQueue) PublishDelayed(j *Job, delay time.Duration) error {
 	if j == nil || len(j.raw) == 0 {
-		return ErrEmptyJob
+		return ErrEmptyJob.New()
 	}
 
 	if q.publishImmediately {
@@ -132,7 +132,7 @@ func (i *memoryJobIter) isClosed() bool {
 func (i *memoryJobIter) Next() (*Job, error) {
 	for {
 		if i.isClosed() {
-			return nil, ErrAlreadyClosed
+			return nil, ErrAlreadyClosed.New()
 		}
 
 		j, err := i.next()
