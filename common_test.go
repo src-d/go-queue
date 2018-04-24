@@ -49,7 +49,7 @@ func TestNewBroker(t *testing.T) {
 	assert.NoError(b.Close())
 
 	b, err = NewBroker("badproto://badurl")
-	assert.EqualError(ErrUnsupportedProtocol.New(), err.Error())
+	assert.True(ErrUnsupportedProtocol.Is(err))
 
 	b, err = NewBroker("foo://host%10")
 	assert.Error(err)
@@ -197,7 +197,7 @@ func (s *QueueSuite) TestPublish_nil() {
 	assert.NotNil(q)
 
 	err = q.Publish(nil)
-	assert.EqualError(ErrEmptyJob.New(), err.Error())
+	assert.True(ErrEmptyJob.Is(err))
 }
 
 func (s *QueueSuite) TestPublish_empty() {
@@ -209,7 +209,7 @@ func (s *QueueSuite) TestPublish_empty() {
 	assert.NotNil(q)
 
 	err = q.Publish(&Job{})
-	assert.EqualError(ErrEmptyJob.New(), err.Error())
+	assert.True(ErrEmptyJob.Is(err))
 }
 
 func (s *QueueSuite) TestPublishDelayed_nil() {
@@ -221,7 +221,7 @@ func (s *QueueSuite) TestPublishDelayed_nil() {
 	assert.NotNil(q)
 
 	err = q.PublishDelayed(nil, time.Second)
-	assert.EqualError(ErrEmptyJob.New(), err.Error())
+	assert.True(ErrEmptyJob.Is(err))
 }
 
 func (s *QueueSuite) TestPublishDelayed_empty() {
@@ -233,7 +233,7 @@ func (s *QueueSuite) TestPublishDelayed_empty() {
 	assert.NotNil(q)
 
 	err = q.PublishDelayed(&Job{}, time.Second)
-	assert.EqualError(ErrEmptyJob.New(), err.Error())
+	assert.True(ErrEmptyJob.Is(err))
 }
 
 func (s *QueueSuite) TestPublishAndConsume_immediate_ack() {
@@ -470,7 +470,7 @@ func (s *QueueSuite) TestTransaction_not_supported() {
 	assert.NotNil(q)
 
 	err = q.Transaction(nil)
-	assert.EqualError(ErrTxNotSupported.New(), err.Error())
+	assert.True(ErrTxNotSupported.Is(err))
 }
 
 func (s *QueueSuite) TestRetryQueue() {
@@ -544,7 +544,7 @@ func (s *QueueSuite) checkNextClosed(iter JobIter) chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		j, err := iter.Next()
-		assert.EqualError(ErrAlreadyClosed.New(), err.Error())
+		assert.True(ErrAlreadyClosed.Is(err))
 		assert.Nil(j)
 		done <- struct{}{}
 	}()

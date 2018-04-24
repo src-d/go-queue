@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"time"
 
-	errors "gopkg.in/src-d/go-errors.v1"
+	"gopkg.in/src-d/go-errors.v1"
 )
 
 // Priority represents a priority level.
