@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/src-d/go-errors.v1"
 
+	"github.com/jpillora/backoff"
 	"github.com/streadway/amqp"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 )
@@ -30,6 +31,10 @@ const (
 
 	retriesHeader string = "x-retries"
 	errorHeader   string = "x-error-type"
+
+	backoffMin    = 200 * time.Millisecond
+	backoffMax    = 30 * time.Second
+	backoffFactor = 2
 )
 
 // AMQPBroker implements the Broker interface for AMQP.
@@ -70,31 +75,41 @@ func NewAMQPBroker(url string) (Broker, error) {
 }
 
 func connect(url string) (*amqp.Connection, *amqp.Channel) {
+
+	var (
+		conn *amqp.Connection
+		ch   *amqp.Channel
+		err  error
+		b    = &backoff.Backoff{
+			Min:    backoffMin,
+			Max:    backoffMax,
+			Factor: backoffFactor,
+			Jitter: false,
+		}
+	)
+
 	// first try to connect again
-	var conn *amqp.Connection
-	var err error
 	for {
-		conn, err = amqp.Dial(url)
-		if err != nil {
-			log15.Error("error connecting to amqp", "err", err)
-			<-time.After(1 * time.Second)
-			continue
+		if conn, err = amqp.Dial(url); err == nil {
+			b.Reset()
+			break
 		}
 
-		break
+		d := b.Duration()
+		log15.Error("error connecting to amqp", "err", err, "reconnecting in", d)
+		time.Sleep(d)
 	}
 
 	// try to get the channel again
-	var ch *amqp.Channel
 	for {
-		ch, err = conn.Channel()
-		if err != nil {
-			log15.Error("error creatting channel", "err", err)
-			<-time.After(1 * time.Second)
-			continue
+		if ch, err = conn.Channel(); err == nil {
+			b.Reset()
+			break
 		}
 
-		break
+		d := b.Duration()
+		log15.Error("error creatting channel", "err", err, "retry in", d)
+		time.Sleep(d)
 	}
 
 	return conn, ch

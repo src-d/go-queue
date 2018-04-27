@@ -58,7 +58,7 @@ func (q *memoryQueue) PublishDelayed(j *Job, delay time.Duration) error {
 		return q.Publish(j)
 	}
 	go func() {
-		<-time.After(delay)
+		time.Sleep(delay)
 		q.Publish(j)
 	}()
 	return nil

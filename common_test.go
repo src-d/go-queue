@@ -146,7 +146,7 @@ func (s *QueueSuite) TestJob_Reject_no_requeue() {
 		assert.NoError(iter.Close())
 	} else {
 		done := s.checkNextClosed(iter)
-		<-time.After(50 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		assert.NoError(iter.Close())
 		<-done
 	}
@@ -372,7 +372,7 @@ func (s *QueueSuite) TestDelayed() {
 		j, err := iter.Next()
 		assert.NoError(err)
 		if j == nil {
-			<-time.After(300 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 			continue
 		}
 
@@ -418,7 +418,7 @@ func (s *QueueSuite) TestTransaction_Error() {
 		assert.NoError(i.Close())
 	} else {
 		done := s.checkNextClosed(i)
-		<-time.After(50 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		assert.NoError(i.Close())
 		<-done
 	}
