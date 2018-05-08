@@ -3,7 +3,7 @@ package queue
 import (
 	"testing"
 
-	queue "gopkg.in/src-d/go-queue.v0"
+	"gopkg.in/src-d/go-queue.v0"
 	"gopkg.in/src-d/go-queue.v0/test"
 
 	"github.com/stretchr/testify/assert"

@@ -7,9 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/src-d/go-queue.v0"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
-	queue "gopkg.in/src-d/go-queue.v0"
 )
 
 var testRand *rand.Rand

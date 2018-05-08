@@ -5,11 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/src-d/go-queue.v0"
+	"gopkg.in/src-d/go-queue.v0/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	queue "gopkg.in/src-d/go-queue.v0"
-	"gopkg.in/src-d/go-queue.v0/test"
 )
 
 func TestAMQPSuite(t *testing.T) {
