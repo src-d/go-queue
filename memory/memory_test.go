@@ -3,6 +3,9 @@ package queue
 import (
 	"testing"
 
+	queue "gopkg.in/src-d/go-queue.v0"
+	"gopkg.in/src-d/go-queue.v0/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
@@ -12,23 +15,23 @@ func TestMemorySuite(t *testing.T) {
 }
 
 type MemorySuite struct {
-	QueueSuite
+	test.QueueSuite
 }
 
 func (s *MemorySuite) SetupSuite() {
-	s.BrokerURI = testMemoryURI
+	s.BrokerURI = "memory://"
 	s.AdvWindowNotSupported = true
 }
 
 func (s *MemorySuite) TestIntegration() {
 	assert := assert.New(s.T())
 
-	qName := newName()
+	qName := test.NewName()
 	q, err := s.Broker.Queue(qName)
 	assert.NoError(err)
 	assert.NotNil(q)
 
-	j, err := NewJob()
+	j, err := queue.NewJob()
 	assert.NoError(err)
 
 	j.Encode(true)
@@ -36,7 +39,7 @@ func (s *MemorySuite) TestIntegration() {
 	assert.NoError(err)
 
 	for i := 0; i < 100; i++ {
-		job, err := NewJob()
+		job, err := queue.NewJob()
 		assert.NoError(err)
 
 		job.Encode(true)
@@ -57,7 +60,6 @@ func (s *MemorySuite) TestIntegration() {
 	assert.NoError(err)
 	assert.True(payload)
 
-	assert.Equal(j.tag, retrievedJob.tag)
 	assert.Equal(j.Priority, retrievedJob.Priority)
 	assert.Equal(j.Timestamp.Second(), retrievedJob.Timestamp.Second())
 

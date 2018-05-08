@@ -3,21 +3,29 @@ package queue
 import (
 	"sync"
 	"time"
+
+	"gopkg.in/src-d/go-queue.v0"
 )
 
-type memoryBroker struct {
-	queues map[string]Queue
+func init() {
+	queue.Register("memory", func(uri string) (queue.Broker, error) {
+		return NewMemoryBroker(), nil
+	})
 }
 
-// Creates a new Broker for an in-memory queue.
-func NewMemoryBroker() Broker {
-	return &memoryBroker{make(map[string]Queue)}
+type memoryBroker struct {
+	queues map[string]queue.Queue
+}
+
+// NewMemoryBroker creates a new Broker for an in-memory queue.
+func NewMemoryBroker() queue.Broker {
+	return &memoryBroker{make(map[string]queue.Queue)}
 }
 
 // Queue returns the queue with the given name.
-func (b *memoryBroker) Queue(name string) (Queue, error) {
+func (b *memoryBroker) Queue(name string) (queue.Queue, error) {
 	if _, ok := b.queues[name]; !ok {
-		b.queues[name] = &memoryQueue{jobs: make([]*Job, 0, 10)}
+		b.queues[name] = &memoryQueue{jobs: make([]*queue.Job, 0, 10)}
 	}
 
 	return b.queues[name], nil
@@ -29,17 +37,17 @@ func (b *memoryBroker) Close() error {
 }
 
 type memoryQueue struct {
-	jobs       []*Job
-	buriedJobs []*Job
+	jobs       []*queue.Job
+	buriedJobs []*queue.Job
 	sync.RWMutex
 	idx                int
 	publishImmediately bool
 }
 
 // Publish publishes a Job to the queue.
-func (q *memoryQueue) Publish(j *Job) error {
-	if j == nil || len(j.raw) == 0 {
-		return ErrEmptyJob.New()
+func (q *memoryQueue) Publish(j *queue.Job) error {
+	if j == nil || j.Size() == 0 {
+		return queue.ErrEmptyJob.New()
 	}
 
 	q.Lock()
@@ -49,9 +57,9 @@ func (q *memoryQueue) Publish(j *Job) error {
 }
 
 // PublishDelayed publishes a Job to the queue with a given delay.
-func (q *memoryQueue) PublishDelayed(j *Job, delay time.Duration) error {
-	if j == nil || len(j.raw) == 0 {
-		return ErrEmptyJob.New()
+func (q *memoryQueue) PublishDelayed(j *queue.Job, delay time.Duration) error {
+	if j == nil || j.Size() == 0 {
+		return queue.ErrEmptyJob.New()
 	}
 
 	if q.publishImmediately {
@@ -65,9 +73,9 @@ func (q *memoryQueue) PublishDelayed(j *Job, delay time.Duration) error {
 }
 
 // RepublishBuried implement the Queue interface.
-func (q *memoryQueue) RepublishBuried(conditions ...RepublishConditionFunc) error {
+func (q *memoryQueue) RepublishBuried(conditions ...queue.RepublishConditionFunc) error {
 	for _, job := range q.buriedJobs {
-		if republishConditions(conditions).comply(job) {
+		if queue.RepublishConditions(conditions).Comply(job) {
 			job.ErrorType = ""
 			if err := q.Publish(job); err != nil {
 				return err
@@ -78,8 +86,8 @@ func (q *memoryQueue) RepublishBuried(conditions ...RepublishConditionFunc) erro
 }
 
 // Transaction calls the given callback inside a transaction.
-func (q *memoryQueue) Transaction(txcb TxCallback) error {
-	txQ := &memoryQueue{jobs: make([]*Job, 0, 10), publishImmediately: true}
+func (q *memoryQueue) Transaction(txcb queue.TxCallback) error {
+	txQ := &memoryQueue{jobs: make([]*queue.Job, 0, 10), publishImmediately: true}
 	if err := txcb(txQ); err != nil {
 		return err
 	}
@@ -89,7 +97,7 @@ func (q *memoryQueue) Transaction(txcb TxCallback) error {
 }
 
 // Consume implements Queue.  MemoryQueues have infinite advertised window.
-func (q *memoryQueue) Consume(_ int) (JobIter, error) {
+func (q *memoryQueue) Consume(_ int) (queue.JobIter, error) {
 	return &memoryJobIter{q: q, RWMutex: &q.RWMutex}, nil
 }
 
@@ -101,7 +109,7 @@ type memoryJobIter struct {
 
 type memoryAck struct {
 	q *memoryQueue
-	j *Job
+	j *queue.Job
 }
 
 // Ack is called when the Job has finished.
@@ -129,10 +137,10 @@ func (i *memoryJobIter) isClosed() bool {
 }
 
 // Next returns the next job in the iter.
-func (i *memoryJobIter) Next() (*Job, error) {
+func (i *memoryJobIter) Next() (*queue.Job, error) {
 	for {
 		if i.isClosed() {
-			return nil, ErrAlreadyClosed.New()
+			return nil, queue.ErrAlreadyClosed.New()
 		}
 
 		j, err := i.next()
@@ -145,16 +153,17 @@ func (i *memoryJobIter) Next() (*Job, error) {
 	}
 }
 
-func (i *memoryJobIter) next() (*Job, error) {
+func (i *memoryJobIter) next() (*queue.Job, error) {
 	i.Lock()
 	defer i.Unlock()
 	if len(i.q.jobs) <= i.q.idx {
 		return nil, nil
 	}
+
 	j := i.q.jobs[i.q.idx]
+	j.Acknowledger = &memoryAck{j: j, q: i.q}
 	i.q.idx++
-	j.tag = 1
-	j.acknowledger = &memoryAck{j: j, q: i.q}
+
 	return j, nil
 }
 
