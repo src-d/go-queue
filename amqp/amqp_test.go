@@ -21,7 +21,7 @@ type AMQPSuite struct {
 	test.QueueSuite
 }
 
-const testAMQPURI = "amqp://localhost:5672"
+const testAMQPURI = "amqp://127.0.0.1:5672"
 
 func (s *AMQPSuite) SetupSuite() {
 	s.BrokerURI = testAMQPURI

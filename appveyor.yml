@@ -5,30 +5,11 @@ clone_folder: c:\gopath\src\gopkg.in\src-d\go-queue.v0
 
 environment:
   GOPATH: c:\gopath
-  rabbitmq_version: 3.7.4
-  rabbitmq_installer_download_url: "https://github.com/rabbitmq/rabbitmq-server/releases/download/v3.7.4/rabbitmq-server-3.7.4.exe"
-  rabbitmq_installer_path: "C:\\Users\\appveyor\\rabbitmq-server-3.7.4.exe"
-
-cache:
-  - "%rabbitmq_installer_path%"
 
 before_test:
-  - ECHO Downloading RabbitMQ...
-  - ps: if (-Not (Test-Path "$env:rabbitmq_installer_path")) { $webclient.DownloadFile("$env:rabbitmq_installer_download_url", "$env:rabbitmq_installer_path") } else { Write-Host "Found" $env:rabbitmq_installer_path "in cache." }
-
-  - ECHO Creating directory %AppData%\RabbitMQ...
-  - ps: New-Item -ItemType Directory -ErrorAction Continue -Path "$env:AppData/RabbitMQ"
-
-  - ECHO Creating RabbitMQ configuration file in %AppData%\RabbitMQ...
-  - ps: Get-Content C:/Projects/pika/testdata/rabbitmq.conf.in | %{ $_ -replace 'PIKA_DIR', 'C:/projects/pika' } | Set-Content -Path "$env:AppData/RabbitMQ/rabbitmq.conf"
-  - ps: Get-Content "$env:AppData/RabbitMQ/rabbitmq.conf"
-
-  - ECHO Installing and starting RabbitMQ with default config...
-  - start /B /WAIT %rabbitmq_installer_path% /S
-  - ps: (Get-Service -Name RabbitMQ).Status
-
-  - ECHO Getting RabbitMQ status...
-  - cmd /c "C:\Program Files\RabbitMQ Server\rabbitmq_server-%rabbitmq_version%\sbin\rabbitmqctl.bat" status
+  - set PATH=C:\Program Files\erl9.2\bin;%PATH%
+  - choco install rabbitmq --ignoredependencies -y
+  - ps: Start-Sleep -s 2
 
 build_script:
   - set PATH=%GOPATH%\bin;c:\go\bin;%PATH%
