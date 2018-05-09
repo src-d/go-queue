@@ -27,6 +27,10 @@ func (s *AMQPSuite) SetupSuite() {
 	s.BrokerURI = testAMQPURI
 }
 
+func TestDefaultConfig(t *testing.T) {
+	assert.Equal(t, DefaultConfiguration.BuriedExchangeSuffix, ".buriedExchange")
+}
+
 func TestNewAMQPBroker_bad_url(t *testing.T) {
 	assert := assert.New(t)
 
@@ -106,17 +110,18 @@ func TestAMQPHeaders(t *testing.T) {
 		errorType string
 	}{
 		{
-			name:      fmt.Sprintf("with %s and %s headers", retriesHeader, errorHeader),
+			name: fmt.Sprintf("with %s and %s headers",
+				DefaultConfiguration.RetriesHeader, DefaultConfiguration.ErrorHeader),
 			retries:   int32(10),
 			errorType: "error-test",
 		},
 		{
-			name:      fmt.Sprintf("with %s header", retriesHeader),
+			name:      fmt.Sprintf("with %s header", DefaultConfiguration.RetriesHeader),
 			retries:   int32(10),
 			errorType: "",
 		},
 		{
-			name:      fmt.Sprintf("with %s headers", errorHeader),
+			name:      fmt.Sprintf("with %s headers", DefaultConfiguration.ErrorHeader),
 			retries:   int32(0),
 			errorType: "error-test",
 		},

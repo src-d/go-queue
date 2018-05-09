@@ -62,6 +62,18 @@ fmt.Println(payload)
 // Output: hello world!
 ```
 
+
+Configuration
+-------------
+
+### AMQP
+
+The list of available variables is:
+
+- `AMQP_BACKOFF_MIN` (default: 20ms): Minimum time to wait for retry the connection or queue channel assignment.
+- `AMQP_BACKOFF_MAX` (default: 30s): Maximum time to wait for retry the connection or queue channel assignment.
+- `AMQP_BACKOFF_FACTOR` (default: 2): Multiplying factor for each increment step on the retry.
+
 License
 -------
 Apache License Version 2.0, see [LICENSE](LICENSE)
