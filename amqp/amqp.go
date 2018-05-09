@@ -8,12 +8,19 @@ import (
 	"sync/atomic"
 	"time"
 
-	"gopkg.in/src-d/go-errors.v1"
+	"gopkg.in/src-d/go-queue.v0"
 
 	"github.com/jpillora/backoff"
 	"github.com/streadway/amqp"
 	log15 "gopkg.in/inconshreveable/log15.v2"
+	"gopkg.in/src-d/go-errors.v1"
 )
+
+func init() {
+	queue.Register("amqp", func(uri string) (queue.Broker, error) {
+		return New(uri)
+	})
+}
 
 var consumerSeq uint64
 
@@ -37,8 +44,8 @@ const (
 	backoffFactor = 2
 )
 
-// AMQPBroker implements the Broker interface for AMQP.
-type AMQPBroker struct {
+// Broker implements the queue.Broker interface for AMQP, such as RabbitMQ.
+type Broker struct {
 	mut        sync.RWMutex
 	conn       *amqp.Connection
 	ch         *amqp.Channel
@@ -51,8 +58,8 @@ type connection interface {
 	channel() *amqp.Channel
 }
 
-// NewAMQPBroker creates a new AMQPBroker.
-func NewAMQPBroker(url string) (Broker, error) {
+// New creates a new AMQPBroker.
+func New(url string) (queue.Broker, error) {
 	conn, err := amqp.Dial(url)
 	if err != nil {
 		return nil, ErrConnectionFailed.New(err)
@@ -63,7 +70,7 @@ func NewAMQPBroker(url string) (Broker, error) {
 		return nil, ErrOpenChannel.New(err)
 	}
 
-	b := &AMQPBroker{
+	b := &Broker{
 		conn: conn,
 		ch:   ch,
 		stop: make(chan struct{}),
@@ -75,7 +82,6 @@ func NewAMQPBroker(url string) (Broker, error) {
 }
 
 func connect(url string) (*amqp.Connection, *amqp.Channel) {
-
 	var (
 		conn *amqp.Connection
 		ch   *amqp.Channel
@@ -115,7 +121,7 @@ func connect(url string) (*amqp.Connection, *amqp.Channel) {
 	return conn, ch
 }
 
-func (b *AMQPBroker) manageConnection(url string) {
+func (b *Broker) manageConnection(url string) {
 	b.connErrors = make(chan *amqp.Error)
 	b.conn.NotifyClose(b.connErrors)
 
@@ -138,19 +144,19 @@ func (b *AMQPBroker) manageConnection(url string) {
 	}
 }
 
-func (b *AMQPBroker) connection() *amqp.Connection {
+func (b *Broker) connection() *amqp.Connection {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 	return b.conn
 }
 
-func (b *AMQPBroker) channel() *amqp.Channel {
+func (b *Broker) channel() *amqp.Channel {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 	return b.ch
 }
 
-func (b *AMQPBroker) newBuriedQueue(mainQueueName string) (q amqp.Queue, rex string, err error) {
+func (b *Broker) newBuriedQueue(mainQueueName string) (q amqp.Queue, rex string, err error) {
 	ch, err := b.conn.Channel()
 	if err != nil {
 		return
@@ -184,7 +190,7 @@ func (b *AMQPBroker) newBuriedQueue(mainQueueName string) (q amqp.Queue, rex str
 }
 
 // Queue returns the queue with the given name.
-func (b *AMQPBroker) Queue(name string) (Queue, error) {
+func (b *Broker) Queue(name string) (queue.Queue, error) {
 	buriedQueue, rex, err := b.newBuriedQueue(name)
 	if err != nil {
 		return nil, err
@@ -199,7 +205,7 @@ func (b *AMQPBroker) Queue(name string) (Queue, error) {
 		amqp.Table{
 			"x-dead-letter-exchange":    rex,
 			"x-dead-letter-routing-key": name,
-			"x-max-priority":            uint8(PriorityUrgent),
+			"x-max-priority":            uint8(queue.PriorityUrgent),
 		},
 	)
 
@@ -207,15 +213,15 @@ func (b *AMQPBroker) Queue(name string) (Queue, error) {
 		return nil, err
 	}
 
-	return &AMQPQueue{
+	return &Queue{
 		conn:        b,
 		queue:       q,
-		buriedQueue: &AMQPQueue{conn: b, queue: buriedQueue},
+		buriedQueue: &Queue{conn: b, queue: buriedQueue},
 	}, nil
 }
 
 // Close closes all the connections managed by the broker.
-func (b *AMQPBroker) Close() error {
+func (b *Broker) Close() error {
 	close(b.stop)
 
 	if err := b.channel().Close(); err != nil {
@@ -225,17 +231,17 @@ func (b *AMQPBroker) Close() error {
 	return b.connection().Close()
 }
 
-// AMQPQueue implements the Queue interface for the AMQP.
-type AMQPQueue struct {
+// Queue implements the Queue interface for the AMQP.
+type Queue struct {
 	conn        connection
 	queue       amqp.Queue
-	buriedQueue *AMQPQueue
+	buriedQueue *Queue
 }
 
 // Publish publishes the given Job to the Queue.
-func (q *AMQPQueue) Publish(j *Job) error {
-	if j == nil || len(j.raw) == 0 {
-		return ErrEmptyJob.New()
+func (q *Queue) Publish(j *queue.Job) error {
+	if j == nil || j.Size() == 0 {
+		return queue.ErrEmptyJob.New()
 	}
 
 	headers := amqp.Table{}
@@ -257,8 +263,8 @@ func (q *AMQPQueue) Publish(j *Job) error {
 			MessageId:    j.ID,
 			Priority:     uint8(j.Priority),
 			Timestamp:    j.Timestamp,
-			ContentType:  string(j.contentType),
-			Body:         j.raw,
+			ContentType:  j.ContentType,
+			Body:         j.Raw,
 			Headers:      headers,
 		},
 	)
@@ -266,9 +272,9 @@ func (q *AMQPQueue) Publish(j *Job) error {
 
 // PublishDelayed publishes the given Job with a given delay. Delayed messages
 // wont go into the buried queue if they fail.
-func (q *AMQPQueue) PublishDelayed(j *Job, delay time.Duration) error {
-	if j == nil || len(j.raw) == 0 {
-		return ErrEmptyJob.New()
+func (q *Queue) PublishDelayed(j *queue.Job, delay time.Duration) error {
+	if j == nil || j.Size() == 0 {
+		return queue.ErrEmptyJob.New()
 	}
 
 	ttl := delay / time.Millisecond
@@ -283,7 +289,7 @@ func (q *AMQPQueue) PublishDelayed(j *Job, delay time.Duration) error {
 			"x-dead-letter-routing-key": q.queue.Name,
 			"x-message-ttl":             int64(ttl),
 			"x-expires":                 int64(ttl) * 2,
-			"x-max-priority":            uint8(PriorityUrgent),
+			"x-max-priority":            uint8(queue.PriorityUrgent),
 		},
 	)
 	if err != nil {
@@ -300,20 +306,20 @@ func (q *AMQPQueue) PublishDelayed(j *Job, delay time.Duration) error {
 			MessageId:    j.ID,
 			Priority:     uint8(j.Priority),
 			Timestamp:    j.Timestamp,
-			ContentType:  string(j.contentType),
-			Body:         j.raw,
+			ContentType:  j.ContentType,
+			Body:         j.Raw,
 		},
 	)
 }
 
 type jobErr struct {
-	job *Job
+	job *queue.Job
 	err error
 }
 
 // RepublishBuried will republish in the main queue those jobs that timed out without Ack
 // or were Rejected with requeue = False and makes comply return true.
-func (q *AMQPQueue) RepublishBuried(conditions ...RepublishConditionFunc) error {
+func (q *Queue) RepublishBuried(conditions ...queue.RepublishConditionFunc) error {
 	if q.buriedQueue == nil {
 		return fmt.Errorf("buriedQueue is nil, called RepublishBuried on the internal buried queue?")
 	}
@@ -327,10 +333,10 @@ func (q *AMQPQueue) RepublishBuried(conditions ...RepublishConditionFunc) error 
 	defer iter.Close()
 
 	retries := 0
-	var notComplying []*Job
+	var notComplying []*queue.Job
 	var errorsPublishing []*jobErr
 	for {
-		j, err := iter.(*AMQPJobIter).nextNonBlocking()
+		j, err := iter.(*JobIter).nextNonBlocking()
 		if err != nil {
 			return err
 		}
@@ -355,7 +361,7 @@ func (q *AMQPQueue) RepublishBuried(conditions ...RepublishConditionFunc) error 
 			return err
 		}
 
-		if republishConditions(conditions).comply(j) {
+		if queue.RepublishConditions(conditions).Comply(j) {
 			if err = q.Publish(j); err != nil {
 				errorsPublishing = append(errorsPublishing, &jobErr{j, err})
 			}
@@ -374,7 +380,7 @@ func (q *AMQPQueue) RepublishBuried(conditions ...RepublishConditionFunc) error 
 	return q.handleRepublishErrors(errorsPublishing)
 }
 
-func (q *AMQPQueue) handleRepublishErrors(list []*jobErr) error {
+func (q *Queue) handleRepublishErrors(list []*jobErr) error {
 	if len(list) > 0 {
 		stringErrors := []string{}
 		for _, je := range list {
@@ -391,7 +397,7 @@ func (q *AMQPQueue) handleRepublishErrors(list []*jobErr) error {
 }
 
 // Transaction executes the given callback inside a transaction.
-func (q *AMQPQueue) Transaction(txcb TxCallback) error {
+func (q *Queue) Transaction(txcb queue.TxCallback) error {
 	ch, err := q.conn.connection().Channel()
 	if err != nil {
 		return ErrOpenChannel.New(err)
@@ -403,8 +409,8 @@ func (q *AMQPQueue) Transaction(txcb TxCallback) error {
 		return err
 	}
 
-	txQueue := &AMQPQueue{
-		conn: &AMQPBroker{
+	txQueue := &Queue{
+		conn: &Broker{
 			conn: q.conn.connection(),
 			ch:   ch,
 		},
@@ -425,7 +431,7 @@ func (q *AMQPQueue) Transaction(txcb TxCallback) error {
 
 // Implements Queue.  The advertisedWindow value will be the exact
 // number of undelivered jobs in transit, not just the minium.
-func (q *AMQPQueue) Consume(advertisedWindow int) (JobIter, error) {
+func (q *Queue) Consume(advertisedWindow int) (queue.JobIter, error) {
 	ch, err := q.conn.connection().Channel()
 	if err != nil {
 		return nil, ErrOpenChannel.New(err)
@@ -451,10 +457,10 @@ func (q *AMQPQueue) Consume(advertisedWindow int) (JobIter, error) {
 		return nil, err
 	}
 
-	return &AMQPJobIter{id: id, ch: ch, c: c}, nil
+	return &JobIter{id: id, ch: ch, c: c}, nil
 }
 
-func (q *AMQPQueue) consumeID() string {
+func (q *Queue) consumeID() string {
 	return fmt.Sprintf("%s-%s-%d",
 		os.Args[0],
 		q.queue.Name,
@@ -462,28 +468,28 @@ func (q *AMQPQueue) consumeID() string {
 	)
 }
 
-// AMQPJobIter implements the JobIter interface for AMQP.
-type AMQPJobIter struct {
+// JobIter implements the JobIter interface for AMQP.
+type JobIter struct {
 	id string
 	ch *amqp.Channel
 	c  <-chan amqp.Delivery
 }
 
 // Next returns the next job in the iter.
-func (i *AMQPJobIter) Next() (*Job, error) {
+func (i *JobIter) Next() (*queue.Job, error) {
 	d, ok := <-i.c
 	if !ok {
-		return nil, ErrAlreadyClosed.New()
+		return nil, queue.ErrAlreadyClosed.New()
 	}
 
 	return fromDelivery(&d)
 }
 
-func (i *AMQPJobIter) nextNonBlocking() (*Job, error) {
+func (i *JobIter) nextNonBlocking() (*queue.Job, error) {
 	select {
 	case d, ok := <-i.c:
 		if !ok {
-			return nil, ErrAlreadyClosed.New()
+			return nil, queue.ErrAlreadyClosed.New()
 		}
 
 		return fromDelivery(&d)
@@ -493,7 +499,7 @@ func (i *AMQPJobIter) nextNonBlocking() (*Job, error) {
 }
 
 // Close closes the channel of the JobIter.
-func (i *AMQPJobIter) Close() error {
+func (i *JobIter) Close() error {
 	if err := i.ch.Cancel(i.id, false); err != nil {
 		return err
 	}
@@ -501,36 +507,35 @@ func (i *AMQPJobIter) Close() error {
 	return i.ch.Close()
 }
 
-// AMQPAcknowledger implements the Acknowledger for AMQP.
-type AMQPAcknowledger struct {
+// Acknowledger implements the Acknowledger for AMQP.
+type Acknowledger struct {
 	ack amqp.Acknowledger
 	id  uint64
 }
 
 // Ack signals ackwoledgement.
-func (a *AMQPAcknowledger) Ack() error {
+func (a *Acknowledger) Ack() error {
 	return a.ack.Ack(a.id, false)
 }
 
 // Reject signals rejection. If requeue is false, the job will go to the buried
 // queue until Queue.RepublishBuried() is called.
-func (a *AMQPAcknowledger) Reject(requeue bool) error {
+func (a *Acknowledger) Reject(requeue bool) error {
 	return a.ack.Reject(a.id, requeue)
 }
 
-func fromDelivery(d *amqp.Delivery) (*Job, error) {
-	j, err := NewJob()
+func fromDelivery(d *amqp.Delivery) (*queue.Job, error) {
+	j, err := queue.NewJob()
 	if err != nil {
 		return nil, err
 	}
 
 	j.ID = d.MessageId
-	j.Priority = Priority(d.Priority)
+	j.Priority = queue.Priority(d.Priority)
 	j.Timestamp = d.Timestamp
-	j.contentType = contentType(d.ContentType)
-	j.acknowledger = &AMQPAcknowledger{d.Acknowledger, d.DeliveryTag}
-	j.tag = d.DeliveryTag
-	j.raw = d.Body
+	j.ContentType = d.ContentType
+	j.Acknowledger = &Acknowledger{d.Acknowledger, d.DeliveryTag}
+	j.Raw = d.Body
 
 	if retries, ok := d.Headers[retriesHeader]; ok {
 		retries, ok := retries.(int32)

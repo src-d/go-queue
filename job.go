@@ -10,9 +10,7 @@ import (
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
-type contentType string
-
-const msgpackContentType contentType = "application/msgpack"
+const msgpackContentType = "application/msgpack"
 
 // Job contains the information for a job to be published to a queue.
 type Job struct {
@@ -26,15 +24,16 @@ type Job struct {
 	Retries int32
 	// ErrorType is the kind of error that made the job failing.
 	ErrorType string
-
-	contentType  contentType
-	raw          []byte
-	acknowledger Acknowledger
-	tag          uint64
+	// ContentType of the job
+	ContentType string
+	// Raw content of the Job
+	Raw []byte
+	// Acknowledger is the acknowledgement management system for the job.
+	Acknowledger Acknowledger
 }
 
 // Acknowledger represents the object in charge of acknowledgement
-// management for a job.  When a job is acknowledged using any of the
+// management for a job. When a job is acknowledged using any of the
 // functions in this interface, it will be considered delivered by the
 // queue.
 type Acknowledger interface {
@@ -57,7 +56,7 @@ func NewJob() (*Job, error) {
 		ID:          u.String(),
 		Priority:    PriorityNormal,
 		Timestamp:   time.Now(),
-		contentType: msgpackContentType,
+		ContentType: msgpackContentType,
 	}, nil
 }
 
@@ -69,7 +68,7 @@ func (j *Job) SetPriority(priority Priority) {
 // Encode encodes the payload to the wire format used.
 func (j *Job) Encode(payload interface{}) error {
 	var err error
-	j.raw, err = encode(msgpackContentType, &payload)
+	j.Raw, err = encode(msgpackContentType, &payload)
 	if err != nil {
 		return err
 	}
@@ -79,29 +78,34 @@ func (j *Job) Encode(payload interface{}) error {
 
 // Decode decodes the payload from the wire format.
 func (j *Job) Decode(payload interface{}) error {
-	return decode(msgpackContentType, j.raw, &payload)
+	return decode(msgpackContentType, j.Raw, &payload)
 }
 
 var ErrCantAck = errors.NewKind("can't acknowledge this message, it does not come from a queue")
 
 // Ack is called when the job is finished.
 func (j *Job) Ack() error {
-	if j.acknowledger == nil {
+	if j.Acknowledger == nil {
 		return ErrCantAck.New()
 	}
-	return j.acknowledger.Ack()
+	return j.Acknowledger.Ack()
 }
 
 // Reject is called when the job errors. The parameter is true if and only if the
 // job should be put back in the queue.
 func (j *Job) Reject(requeue bool) error {
-	if j.acknowledger == nil {
+	if j.Acknowledger == nil {
 		return ErrCantAck.New()
 	}
-	return j.acknowledger.Reject(requeue)
+	return j.Acknowledger.Reject(requeue)
 }
 
-func encode(mime contentType, p interface{}) ([]byte, error) {
+// Size returns the size of the message.
+func (j *Job) Size() int {
+	return len(j.Raw)
+}
+
+func encode(mime string, p interface{}) ([]byte, error) {
 	switch mime {
 	case msgpackContentType:
 		return msgpack.Marshal(p)
@@ -110,7 +114,7 @@ func encode(mime contentType, p interface{}) ([]byte, error) {
 	}
 }
 
-func decode(mime contentType, r []byte, p interface{}) error {
+func decode(mime string, r []byte, p interface{}) error {
 	switch mime {
 	case msgpackContentType:
 		return msgpack.Unmarshal(r, p)

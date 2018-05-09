@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/src-d/go-queue.v0"
+	"gopkg.in/src-d/go-queue.v0/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -15,8 +18,10 @@ func TestAMQPSuite(t *testing.T) {
 }
 
 type AMQPSuite struct {
-	QueueSuite
+	test.QueueSuite
 }
+
+const testAMQPURI = "amqp://localhost:5672"
 
 func (s *AMQPSuite) SetupSuite() {
 	s.BrokerURI = testAMQPURI
@@ -25,14 +30,14 @@ func (s *AMQPSuite) SetupSuite() {
 func TestNewAMQPBroker_bad_url(t *testing.T) {
 	assert := assert.New(t)
 
-	b, err := NewAMQPBroker("badurl")
+	b, err := New("badurl")
 	assert.Error(err)
 	assert.Nil(b)
 }
 
-func sendJobs(assert *assert.Assertions, n int, p Priority, q Queue) {
+func sendJobs(assert *assert.Assertions, n int, p queue.Priority, q queue.Queue) {
 	for i := 0; i < n; i++ {
-		j, err := NewJob()
+		j, err := queue.NewJob()
 		assert.NoError(err)
 		j.SetPriority(p)
 		err = j.Encode(i)
@@ -45,20 +50,22 @@ func sendJobs(assert *assert.Assertions, n int, p Priority, q Queue) {
 func TestAMQPPriorities(t *testing.T) {
 	assert := assert.New(t)
 
-	broker, err := NewAMQPBroker(testAMQPURI)
+	broker, err := New(testAMQPURI)
 	assert.NoError(err)
-	assert.NotNil(broker)
+	if !assert.NotNil(broker) {
+		return
+	}
 
-	name := newName()
+	name := test.NewName()
 	q, err := broker.Queue(name)
 	assert.NoError(err)
 	assert.NotNil(q)
 
 	// Send 50 low priority jobs
-	sendJobs(assert, 50, PriorityLow, q)
+	sendJobs(assert, 50, queue.PriorityLow, q)
 
 	// Send 50 high priority jobs
-	sendJobs(assert, 50, PriorityUrgent, q)
+	sendJobs(assert, 50, queue.PriorityUrgent, q)
 
 	// Receive and collect priorities
 	iter, err := q.Consume(1)
@@ -81,16 +88,16 @@ func TestAMQPPriorities(t *testing.T) {
 	}
 
 	assert.True(sumFirst > sumLast)
-	assert.Equal(uint(PriorityUrgent)*50, sumFirst)
-	assert.Equal(uint(PriorityLow)*50, sumLast)
+	assert.Equal(uint(queue.PriorityUrgent)*50, sumFirst)
+	assert.Equal(uint(queue.PriorityLow)*50, sumLast)
 }
 
 func TestAMQPHeaders(t *testing.T) {
-	broker, err := NewBroker(testAMQPURI)
+	broker, err := queue.NewBroker(testAMQPURI)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, broker.Close()) }()
 
-	queue, err := broker.Queue(newName())
+	q, err := broker.Queue(test.NewName())
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -121,17 +128,17 @@ func TestAMQPHeaders(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		job, err := NewJob()
+		job, err := queue.NewJob()
 		require.NoError(t, err)
 
 		job.Retries = test.retries
 		job.ErrorType = test.errorType
 
 		require.NoError(t, job.Encode(i))
-		require.NoError(t, queue.Publish(job))
+		require.NoError(t, q.Publish(job))
 	}
 
-	jobIter, err := queue.Consume(len(tests))
+	jobIter, err := q.Consume(len(tests))
 	require.NoError(t, err)
 
 	for _, test := range tests {
@@ -147,15 +154,15 @@ func TestAMQPHeaders(t *testing.T) {
 }
 
 func TestAMQPRepublishBuried(t *testing.T) {
-	broker, err := NewBroker(testAMQPURI)
+	broker, err := queue.NewBroker(testAMQPURI)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, broker.Close()) }()
 
-	queueName := newName()
-	queue, err := broker.Queue(queueName)
+	queueName := test.NewName()
+	q, err := broker.Queue(queueName)
 	require.NoError(t, err)
 
-	amqpQueue, ok := queue.(*AMQPQueue)
+	amqpQueue, ok := q.(*Queue)
 	require.True(t, ok)
 
 	buried := amqpQueue.buriedQueue
@@ -170,29 +177,29 @@ func TestAMQPRepublishBuried(t *testing.T) {
 		{name: "message 3", payload: "payload 4"},
 	}
 
-	for _, test := range tests {
-		job, err := NewJob()
+	for _, utest := range tests {
+		job, err := queue.NewJob()
 		require.NoError(t, err)
 
-		job.raw = []byte(test.payload)
+		job.Raw = []byte(utest.payload)
 
 		err = buried.Publish(job)
 		require.NoError(t, err)
 		time.Sleep(1 * time.Second)
 	}
 
-	var condition RepublishConditionFunc = func(j *Job) bool {
-		return string(j.raw) == "republish"
+	var condition queue.RepublishConditionFunc = func(j *queue.Job) bool {
+		return string(j.Raw) == "republish"
 	}
 
-	err = queue.RepublishBuried(condition)
+	err = q.RepublishBuried(condition)
 	require.NoError(t, err)
 
-	jobIter, err := queue.Consume(1)
+	jobIter, err := q.Consume(1)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, jobIter.Close()) }()
 
 	job, err := jobIter.Next()
 	require.NoError(t, err)
-	require.Equal(t, string(job.raw), "republish")
+	require.Equal(t, string(job.Raw), "republish")
 }

@@ -2,7 +2,6 @@ package queue
 
 import (
 	"io"
-	"net/url"
 	"time"
 
 	"gopkg.in/src-d/go-errors.v1"
@@ -29,14 +28,6 @@ var (
 	// ErrTxNotSupported is the error returned when the transaction receives a
 	// callback does not know how to handle.
 	ErrTxNotSupported = errors.NewKind("transactions not supported")
-	// ErrUnsupportedProtocol is the error returned when a Broker does not know how
-	// to connect to a given URL
-	ErrUnsupportedProtocol = errors.NewKind("unsupported protocol")
-)
-
-const (
-	protoAMQP   string = "amqp"
-	protoMemory        = "memory"
 )
 
 // Broker represents a message broker.
@@ -47,34 +38,17 @@ type Broker interface {
 	Close() error
 }
 
-// NewBroker creates a new Broker based on the given URI. Possible URIs are
-//   amqp://<host>[:port]
-//   memory://
-func NewBroker(uri string) (Broker, error) {
-	url, err := url.Parse(uri)
-	if err != nil {
-		return nil, err
-	}
-
-	switch url.Scheme {
-	case protoAMQP:
-		return NewAMQPBroker(uri)
-	case protoMemory:
-		return NewMemoryBroker(), nil
-	default:
-		return nil, ErrUnsupportedProtocol.New()
-	}
-}
-
 // TxCallback is a function to be called in a transaction.
 type TxCallback func(q Queue) error
 
 // RepublishConditionFunc is a function used to filter jobs to republish.
 type RepublishConditionFunc func(job *Job) bool
 
-type republishConditions []RepublishConditionFunc
+// RepublishConditions alias of a list RepublishConditionFunc
+type RepublishConditions []RepublishConditionFunc
 
-func (c republishConditions) comply(job *Job) bool {
+// Comply checks if the Job fit in any of the defined conditions.
+func (c RepublishConditions) Comply(job *Job) bool {
 	if len(c) == 0 {
 		return true
 	}
