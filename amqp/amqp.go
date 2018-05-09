@@ -11,15 +11,40 @@ import (
 	"gopkg.in/src-d/go-queue.v0"
 
 	"github.com/jpillora/backoff"
+	"github.com/kelseyhightower/envconfig"
 	"github.com/streadway/amqp"
 	log15 "gopkg.in/inconshreveable/log15.v2"
 	"gopkg.in/src-d/go-errors.v1"
 )
 
 func init() {
+	err := envconfig.Process("amqp", &DefaultConfiguration)
+	if err != nil {
+		panic(err)
+	}
+
 	queue.Register("amqp", func(uri string) (queue.Broker, error) {
 		return New(uri)
 	})
+}
+
+// DefaultConfiguration contains the default configuration initalized from
+// environment variables.
+var DefaultConfiguration Configuration
+
+// Configuration AMQP configuration settings, this settings are set using the
+// envinroment varabiles.
+type Configuration struct {
+	BuriedQueueSuffix        string `envconfig:"BURIED_QUEUE_SUFFIX" default:".buriedQueue"`
+	BuriedExchangeSuffix     string `envconfig:"BURIED_EXCHANGE_SUFFIX" default:".buriedExchange"`
+	BuriedNonBlockingRetries int    `envconfig:"BURIED_BLOCKING_RETRIES" default:"3"`
+
+	RetriesHeader string `envconfig:"RETRIES_HEADER" default:"x-retries"`
+	ErrorHeader   string `envconfig:"ERROR_HEADER" default:"x-error-type"`
+
+	BackoffMin    time.Duration `envconfig:"BACKOFF_MIN" default:"200ms"`
+	BackoffMax    time.Duration `envconfig:"BACKOFF_MAX" default:"30s"`
+	BackoffFactor float64       `envconfig:"BACKOFF_FACTOR" default:"2"`
 }
 
 var consumerSeq uint64
@@ -29,19 +54,6 @@ var (
 	ErrOpenChannel      = errors.NewKind("failed to open a channel: %s")
 	ErrRetrievingHeader = errors.NewKind("error retrieving '%s' header from message %s")
 	ErrRepublishingJobs = errors.NewKind("couldn't republish some jobs : %s")
-)
-
-const (
-	buriedQueueSuffix         = ".buriedQueue"
-	buriedQueueExchangeSuffix = ".buriedExchange"
-	buriedNonBlockingRetries  = 3
-
-	retriesHeader string = "x-retries"
-	errorHeader   string = "x-error-type"
-
-	backoffMin    = 200 * time.Millisecond
-	backoffMax    = 30 * time.Second
-	backoffFactor = 2
 )
 
 // Broker implements the queue.Broker interface for AMQP, such as RabbitMQ.
@@ -87,9 +99,9 @@ func connect(url string) (*amqp.Connection, *amqp.Channel) {
 		ch   *amqp.Channel
 		err  error
 		b    = &backoff.Backoff{
-			Min:    backoffMin,
-			Max:    backoffMax,
-			Factor: backoffFactor,
+			Min:    DefaultConfiguration.BackoffMin,
+			Max:    DefaultConfiguration.BackoffMax,
+			Factor: DefaultConfiguration.BackoffFactor,
 			Jitter: false,
 		}
 	)
@@ -162,8 +174,8 @@ func (b *Broker) newBuriedQueue(mainQueueName string) (q amqp.Queue, rex string,
 		return
 	}
 
-	buriedName := mainQueueName + buriedQueueSuffix
-	rex = mainQueueName + buriedQueueExchangeSuffix
+	buriedName := mainQueueName + DefaultConfiguration.BuriedQueueSuffix
+	rex = mainQueueName + DefaultConfiguration.BuriedExchangeSuffix
 
 	if err = ch.ExchangeDeclare(rex, "fanout", true, false, false, false, nil); err != nil {
 		return
@@ -246,11 +258,11 @@ func (q *Queue) Publish(j *queue.Job) error {
 
 	headers := amqp.Table{}
 	if j.Retries > 0 {
-		headers[retriesHeader] = j.Retries
+		headers[DefaultConfiguration.RetriesHeader] = j.Retries
 	}
 
 	if j.ErrorType != "" {
-		headers[errorHeader] = j.ErrorType
+		headers[DefaultConfiguration.ErrorHeader] = j.ErrorType
 	}
 
 	return q.conn.channel().Publish(
@@ -342,11 +354,12 @@ func (q *Queue) RepublishBuried(conditions ...queue.RepublishConditionFunc) erro
 		}
 
 		if j == nil {
-			// check (in non blocking mode) up to "buriedNonBlockingRetries" with
-			// a small delay between them just in case some job is arriving, return
-			// if there is nothing after all the retries (meaning: BuriedQueue is surely
-			// empty or any arriving jobs will have to wait to the next call).
-			if retries > buriedNonBlockingRetries {
+			// check (in non blocking mode) up to DefaultConfiguration.BuriedNonBlockingRetries
+			// with a small delay between them just in case some job is
+			// arriving, return if there is nothing after all the retries
+			// (meaning: BuriedQueue is surely empty or any arriving jobs will
+			// have to wait to the next call).
+			if retries > DefaultConfiguration.BuriedNonBlockingRetries {
 				break
 			}
 
@@ -537,19 +550,19 @@ func fromDelivery(d *amqp.Delivery) (*queue.Job, error) {
 	j.Acknowledger = &Acknowledger{d.Acknowledger, d.DeliveryTag}
 	j.Raw = d.Body
 
-	if retries, ok := d.Headers[retriesHeader]; ok {
+	if retries, ok := d.Headers[DefaultConfiguration.RetriesHeader]; ok {
 		retries, ok := retries.(int32)
 		if !ok {
-			return nil, ErrRetrievingHeader.New(retriesHeader, d.MessageId)
+			return nil, ErrRetrievingHeader.New(DefaultConfiguration.RetriesHeader, d.MessageId)
 		}
 
 		j.Retries = retries
 	}
 
-	if errorType, ok := d.Headers[errorHeader]; ok {
+	if errorType, ok := d.Headers[DefaultConfiguration.ErrorHeader]; ok {
 		errorType, ok := errorType.(string)
 		if !ok {
-			return nil, ErrRetrievingHeader.New(retriesHeader, d.MessageId)
+			return nil, ErrRetrievingHeader.New(DefaultConfiguration.ErrorHeader, d.MessageId)
 		}
 
 		j.ErrorType = errorType
