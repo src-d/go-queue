@@ -1,4 +1,4 @@
-package queue
+package memory
 
 import (
 	"testing"
