@@ -21,7 +21,7 @@ var (
 type BrokerBuilder func(uri string) (Broker, error)
 
 // Register registers a new BrokerBuilder to be used by NewBroker, this function
-// should be used in an init function in the implementation packages sush as
+// should be used in an init function in the implementation packages such as
 // `amqp` and `memory`.
 func Register(name string, b BrokerBuilder) {
 	register[name] = b

@@ -9,34 +9,36 @@ import (
 
 func init() {
 	queue.Register("memory", func(uri string) (queue.Broker, error) {
-		return NewMemoryBroker(), nil
+		return New(), nil
 	})
 }
 
-type memoryBroker struct {
+// Broker is a in-memory implementation of brocker.
+type Broker struct {
 	queues map[string]queue.Queue
 }
 
-// NewMemoryBroker creates a new Broker for an in-memory queue.
-func NewMemoryBroker() queue.Broker {
-	return &memoryBroker{make(map[string]queue.Queue)}
+// New creates a new Broker for an in-memory queue.
+func New() queue.Broker {
+	return &Broker{make(map[string]queue.Queue)}
 }
 
 // Queue returns the queue with the given name.
-func (b *memoryBroker) Queue(name string) (queue.Queue, error) {
+func (b *Broker) Queue(name string) (queue.Queue, error) {
 	if _, ok := b.queues[name]; !ok {
-		b.queues[name] = &memoryQueue{jobs: make([]*queue.Job, 0, 10)}
+		b.queues[name] = &Queue{jobs: make([]*queue.Job, 0, 10)}
 	}
 
 	return b.queues[name], nil
 }
 
 // Close closes the connection in the Broker.
-func (b *memoryBroker) Close() error {
+func (b *Broker) Close() error {
 	return nil
 }
 
-type memoryQueue struct {
+// Queue implements a queue.Queue interface.
+type Queue struct {
 	jobs       []*queue.Job
 	buriedJobs []*queue.Job
 	sync.RWMutex
@@ -45,7 +47,7 @@ type memoryQueue struct {
 }
 
 // Publish publishes a Job to the queue.
-func (q *memoryQueue) Publish(j *queue.Job) error {
+func (q *Queue) Publish(j *queue.Job) error {
 	if j == nil || j.Size() == 0 {
 		return queue.ErrEmptyJob.New()
 	}
@@ -57,7 +59,7 @@ func (q *memoryQueue) Publish(j *queue.Job) error {
 }
 
 // PublishDelayed publishes a Job to the queue with a given delay.
-func (q *memoryQueue) PublishDelayed(j *queue.Job, delay time.Duration) error {
+func (q *Queue) PublishDelayed(j *queue.Job, delay time.Duration) error {
 	if j == nil || j.Size() == 0 {
 		return queue.ErrEmptyJob.New()
 	}
@@ -73,7 +75,7 @@ func (q *memoryQueue) PublishDelayed(j *queue.Job, delay time.Duration) error {
 }
 
 // RepublishBuried implement the Queue interface.
-func (q *memoryQueue) RepublishBuried(conditions ...queue.RepublishConditionFunc) error {
+func (q *Queue) RepublishBuried(conditions ...queue.RepublishConditionFunc) error {
 	for _, job := range q.buriedJobs {
 		if queue.RepublishConditions(conditions).Comply(job) {
 			job.ErrorType = ""
@@ -86,8 +88,8 @@ func (q *memoryQueue) RepublishBuried(conditions ...queue.RepublishConditionFunc
 }
 
 // Transaction calls the given callback inside a transaction.
-func (q *memoryQueue) Transaction(txcb queue.TxCallback) error {
-	txQ := &memoryQueue{jobs: make([]*queue.Job, 0, 10), publishImmediately: true}
+func (q *Queue) Transaction(txcb queue.TxCallback) error {
+	txQ := &Queue{jobs: make([]*queue.Job, 0, 10), publishImmediately: true}
 	if err := txcb(txQ); err != nil {
 		return err
 	}
@@ -97,30 +99,32 @@ func (q *memoryQueue) Transaction(txcb queue.TxCallback) error {
 }
 
 // Consume implements Queue.  MemoryQueues have infinite advertised window.
-func (q *memoryQueue) Consume(_ int) (queue.JobIter, error) {
-	return &memoryJobIter{q: q, RWMutex: &q.RWMutex}, nil
+func (q *Queue) Consume(_ int) (queue.JobIter, error) {
+	return &JobIter{q: q, RWMutex: &q.RWMutex}, nil
 }
 
-type memoryJobIter struct {
-	q      *memoryQueue
+// JobIter implements a queue.JobIter interface.
+type JobIter struct {
+	q      *Queue
 	closed bool
 	*sync.RWMutex
 }
 
-type memoryAck struct {
-	q *memoryQueue
+// Acknowledger implements a queue.Acknowledger interface.
+type Acknowledger struct {
+	q *Queue
 	j *queue.Job
 }
 
 // Ack is called when the Job has finished.
-func (*memoryAck) Ack() error {
+func (*Acknowledger) Ack() error {
 	return nil
 }
 
 // Reject is called when the Job has errored. The argument indicates whether the Job
 // should be put back in queue or not.  If requeue is false, the job will go to the buried
 // queue until Queue.RepublishBuried() is called.
-func (a *memoryAck) Reject(requeue bool) error {
+func (a *Acknowledger) Reject(requeue bool) error {
 	if !requeue {
 		// Send to the buried queue for later republishing
 		a.q.buriedJobs = append(a.q.buriedJobs, a.j)
@@ -130,14 +134,14 @@ func (a *memoryAck) Reject(requeue bool) error {
 	return a.q.Publish(a.j)
 }
 
-func (i *memoryJobIter) isClosed() bool {
+func (i *JobIter) isClosed() bool {
 	i.RLock()
 	defer i.RUnlock()
 	return i.closed
 }
 
 // Next returns the next job in the iter.
-func (i *memoryJobIter) Next() (*queue.Job, error) {
+func (i *JobIter) Next() (*queue.Job, error) {
 	for {
 		if i.isClosed() {
 			return nil, queue.ErrAlreadyClosed.New()
@@ -153,7 +157,7 @@ func (i *memoryJobIter) Next() (*queue.Job, error) {
 	}
 }
 
-func (i *memoryJobIter) next() (*queue.Job, error) {
+func (i *JobIter) next() (*queue.Job, error) {
 	i.Lock()
 	defer i.Unlock()
 	if len(i.q.jobs) <= i.q.idx {
@@ -161,14 +165,14 @@ func (i *memoryJobIter) next() (*queue.Job, error) {
 	}
 
 	j := i.q.jobs[i.q.idx]
-	j.Acknowledger = &memoryAck{j: j, q: i.q}
+	j.Acknowledger = &Acknowledger{j: j, q: i.q}
 	i.q.idx++
 
 	return j, nil
 }
 
 // Close closes the iter.
-func (i *memoryJobIter) Close() error {
+func (i *JobIter) Close() error {
 	i.Lock()
 	defer i.Unlock()
 	i.closed = true

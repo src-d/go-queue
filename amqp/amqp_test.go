@@ -30,7 +30,7 @@ func (s *AMQPSuite) SetupSuite() {
 func TestNewAMQPBroker_bad_url(t *testing.T) {
 	assert := assert.New(t)
 
-	b, err := NewAMQPBroker("badurl")
+	b, err := New("badurl")
 	assert.Error(err)
 	assert.Nil(b)
 }
@@ -50,7 +50,7 @@ func sendJobs(assert *assert.Assertions, n int, p queue.Priority, q queue.Queue)
 func TestAMQPPriorities(t *testing.T) {
 	assert := assert.New(t)
 
-	broker, err := NewAMQPBroker(testAMQPURI)
+	broker, err := New(testAMQPURI)
 	assert.NoError(err)
 	if !assert.NotNil(broker) {
 		return
@@ -162,7 +162,7 @@ func TestAMQPRepublishBuried(t *testing.T) {
 	q, err := broker.Queue(queueName)
 	require.NoError(t, err)
 
-	amqpQueue, ok := q.(*AMQPQueue)
+	amqpQueue, ok := q.(*Queue)
 	require.True(t, ok)
 
 	buried := amqpQueue.buriedQueue
