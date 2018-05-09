@@ -5,7 +5,7 @@ go:
   - 1.10.x
   - tip
 
-go_import_path: gopkg.in/src-d/go-queue.v0
+go_import_path: gopkg.in/src-d/go-queue.v1
 
 matrix:
   fast_finish: true

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/src-d/go-queue.v0"
+	"gopkg.in/src-d/go-queue.v1"
 )
 
 func init() {

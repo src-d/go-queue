@@ -3,7 +3,7 @@ package queue
 import (
 	"net/url"
 
-	errors "gopkg.in/src-d/go-errors.v0"
+	"gopkg.in/src-d/go-errors.v0"
 )
 
 var (
@@ -30,7 +30,7 @@ func Register(name string, b BrokerBuilder) {
 // NewBroker creates a new Broker based on the given URI. In order to register
 // different implementations the package should be imported, example:
 //
-// import _ "gopkg.in/src-d/go-queue.v0/amqp"
+// import _ "gopkg.in/src-d/go-queue.v1/amqp"
 func NewBroker(uri string) (Broker, error) {
 	url, err := url.Parse(uri)
 	if err != nil {

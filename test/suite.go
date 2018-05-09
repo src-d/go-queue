@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/src-d/go-queue.v0"
+	"gopkg.in/src-d/go-queue.v1"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"

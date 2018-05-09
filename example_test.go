@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"gopkg.in/src-d/go-queue.v0"
-	_ "gopkg.in/src-d/go-queue.v0/memory"
+	"gopkg.in/src-d/go-queue.v1"
+	_ "gopkg.in/src-d/go-queue.v1/memory"
 )
 
 func ExampleMemoryQueue() {
