@@ -13,8 +13,8 @@ import (
 	"github.com/jpillora/backoff"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/streadway/amqp"
-	log15 "gopkg.in/inconshreveable/log15.v2"
 	"gopkg.in/src-d/go-errors.v1"
+	"gopkg.in/src-d/go-log.v0"
 )
 
 func init() {
@@ -63,6 +63,7 @@ type Broker struct {
 	ch         *amqp.Channel
 	connErrors chan *amqp.Error
 	stop       chan struct{}
+	backoff    *backoff.Backoff
 }
 
 type connection interface {
@@ -86,51 +87,17 @@ func New(url string) (queue.Broker, error) {
 		conn: conn,
 		ch:   ch,
 		stop: make(chan struct{}),
+		backoff: &backoff.Backoff{
+			Min:    DefaultConfiguration.BackoffMin,
+			Max:    DefaultConfiguration.BackoffMax,
+			Factor: DefaultConfiguration.BackoffFactor,
+			Jitter: false,
+		},
 	}
 
 	go b.manageConnection(url)
 
 	return b, nil
-}
-
-func connect(url string) (*amqp.Connection, *amqp.Channel) {
-	var (
-		conn *amqp.Connection
-		ch   *amqp.Channel
-		err  error
-		b    = &backoff.Backoff{
-			Min:    DefaultConfiguration.BackoffMin,
-			Max:    DefaultConfiguration.BackoffMax,
-			Factor: DefaultConfiguration.BackoffFactor,
-			Jitter: false,
-		}
-	)
-
-	// first try to connect again
-	for {
-		if conn, err = amqp.Dial(url); err == nil {
-			b.Reset()
-			break
-		}
-
-		d := b.Duration()
-		log15.Error("error connecting to amqp", "err", err, "reconnecting in", d)
-		time.Sleep(d)
-	}
-
-	// try to get the channel again
-	for {
-		if ch, err = conn.Channel(); err == nil {
-			b.Reset()
-			break
-		}
-
-		d := b.Duration()
-		log15.Error("error creatting channel", "err", err, "retry in", d)
-		time.Sleep(d)
-	}
-
-	return conn, ch
 }
 
 func (b *Broker) manageConnection(url string) {
@@ -140,11 +107,10 @@ func (b *Broker) manageConnection(url string) {
 	for {
 		select {
 		case err := <-b.connErrors:
-			log15.Error("amqp connection error", "err", err)
+			log.Errorf(err, "amqp connection error")
 			b.mut.Lock()
 			if err != nil {
-				b.conn, b.ch = connect(url)
-
+				b.conn, b.ch = b.reconnect(url)
 				b.connErrors = make(chan *amqp.Error)
 				b.conn.NotifyClose(b.connErrors)
 			}
@@ -153,6 +119,41 @@ func (b *Broker) manageConnection(url string) {
 		case <-b.stop:
 			return
 		}
+	}
+}
+
+func (b *Broker) reconnect(url string) (*amqp.Connection, *amqp.Channel) {
+	b.backoff.Reset()
+	conn := b.tryConnection(url)
+	ch := b.tryChannel(conn)
+	return conn, ch
+}
+
+func (b *Broker) tryConnection(url string) *amqp.Connection {
+	for {
+		conn, err := amqp.Dial(url)
+		if err == nil {
+			b.backoff.Reset()
+			return conn
+		}
+
+		d := b.backoff.Duration()
+		log.Errorf(err, "error connecting to amqp, reconnecting in %s", d)
+		time.Sleep(d)
+	}
+}
+
+func (b *Broker) tryChannel(conn *amqp.Connection) *amqp.Channel {
+	for {
+		ch, err := conn.Channel()
+		if err == nil {
+			b.backoff.Reset()
+			return ch
+		}
+
+		d := b.backoff.Duration()
+		log.Errorf(err, "error creatting channel, new retry in %s", d)
+		time.Sleep(d)
 	}
 }
 
