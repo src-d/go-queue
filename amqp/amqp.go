@@ -355,12 +355,21 @@ func (q *Queue) RepublishBuried(conditions ...queue.RepublishConditionFunc) erro
 		}
 
 		if j == nil {
+			log.With(log.Fields{
+				"retries": retries,
+			}).Debugf("received empty job")
+
 			// check (in non blocking mode) up to DefaultConfiguration.BuriedNonBlockingRetries
 			// with a small delay between them just in case some job is
 			// arriving, return if there is nothing after all the retries
 			// (meaning: BuriedQueue is surely empty or any arriving jobs will
 			// have to wait to the next call).
 			if retries > DefaultConfiguration.BuriedNonBlockingRetries {
+				log.With(log.Fields{
+					"retries":     retries,
+					"max-retries": DefaultConfiguration.BuriedNonBlockingRetries,
+				}).Debugf("maximum number of retries reached")
+
 				break
 			}
 
@@ -376,19 +385,45 @@ func (q *Queue) RepublishBuried(conditions ...queue.RepublishConditionFunc) erro
 		}
 
 		if queue.RepublishConditions(conditions).Comply(j) {
+			start := time.Now()
 			if err = q.Publish(j); err != nil {
+				log.With(log.Fields{
+					"duration": time.Since(start),
+					"id":       j.ID,
+				}).Errorf(err, "error publishing job")
+
 				errorsPublishing = append(errorsPublishing, &jobErr{j, err})
+			} else {
+				log.With(log.Fields{
+					"duration": time.Since(start),
+					"id":       j.ID,
+				}).Debugf("job republished")
 			}
 		} else {
-			notComplying = append(notComplying, j)
+			log.With(log.Fields{
+				"id":           j.ID,
+				"error-type":   j.ErrorType,
+				"content-type": j.ContentType,
+				"retries":      j.Retries,
+			}).Debugf("job does not comply with conditions")
 
+			notComplying = append(notComplying, j)
 		}
 	}
 
-	for _, job := range notComplying {
+	log.Debugf("rejecting %v non complying jobs", len(notComplying))
+
+	for i, job := range notComplying {
+		start := time.Now()
+
 		if err = job.Reject(true); err != nil {
 			return err
 		}
+
+		log.With(log.Fields{
+			"duration": time.Since(start),
+			"id":       job.ID,
+		}).Debugf("job rejected (%v/%v)", i, len(notComplying))
 	}
 
 	return q.handleRepublishErrors(errorsPublishing)
@@ -397,11 +432,18 @@ func (q *Queue) RepublishBuried(conditions ...queue.RepublishConditionFunc) erro
 func (q *Queue) handleRepublishErrors(list []*jobErr) error {
 	if len(list) > 0 {
 		stringErrors := []string{}
-		for _, je := range list {
+		for i, je := range list {
 			stringErrors = append(stringErrors, je.err.Error())
+			start := time.Now()
+
 			if err := q.buriedQueue.Publish(je.job); err != nil {
 				return err
 			}
+
+			log.With(log.Fields{
+				"duration": time.Since(start),
+				"id":       je.job.ID,
+			}).Debugf("job reburied (%v/%v)", i, len(list))
 		}
 
 		return ErrRepublishingJobs.New(strings.Join(stringErrors, ": "))
