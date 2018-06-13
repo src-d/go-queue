@@ -35,9 +35,9 @@ var DefaultConfiguration Configuration
 // Configuration AMQP configuration settings, this settings are set using the
 // envinroment varabiles.
 type Configuration struct {
-	BuriedQueueSuffix        string `envconfig:"BURIED_QUEUE_SUFFIX" default:".buriedQueue"`
-	BuriedExchangeSuffix     string `envconfig:"BURIED_EXCHANGE_SUFFIX" default:".buriedExchange"`
-	BuriedNonBlockingRetries int    `envconfig:"BURIED_BLOCKING_RETRIES" default:"3"`
+	BuriedQueueSuffix    string `envconfig:"BURIED_QUEUE_SUFFIX" default:".buriedQueue"`
+	BuriedExchangeSuffix string `envconfig:"BURIED_EXCHANGE_SUFFIX" default:".buriedExchange"`
+	BuriedTimeout        int    `envconfig:"BURIED_TIMEOUT" default:"500"`
 
 	RetriesHeader string `envconfig:"RETRIES_HEADER" default:"x-retries"`
 	ErrorHeader   string `envconfig:"ERROR_HEADER" default:"x-error-type"`
@@ -345,40 +345,21 @@ func (q *Queue) RepublishBuried(conditions ...queue.RepublishConditionFunc) erro
 
 	defer iter.Close()
 
-	retries := 0
+	timeout := time.Duration(DefaultConfiguration.BuriedTimeout) * time.Millisecond
+
 	var notComplying []*queue.Job
 	var errorsPublishing []*jobErr
 	for {
-		j, err := iter.(*JobIter).nextNonBlocking()
+		j, err := iter.(*JobIter).nextWithTimeout(timeout)
 		if err != nil {
 			return err
 		}
 
 		if j == nil {
-			log.With(log.Fields{
-				"retries": retries,
-			}).Debugf("received empty job")
+			log.Debugf("no more jobs in the buried queue")
 
-			// check (in non blocking mode) up to DefaultConfiguration.BuriedNonBlockingRetries
-			// with a small delay between them just in case some job is
-			// arriving, return if there is nothing after all the retries
-			// (meaning: BuriedQueue is surely empty or any arriving jobs will
-			// have to wait to the next call).
-			if retries > DefaultConfiguration.BuriedNonBlockingRetries {
-				log.With(log.Fields{
-					"retries":     retries,
-					"max-retries": DefaultConfiguration.BuriedNonBlockingRetries,
-				}).Debugf("maximum number of retries reached")
-
-				break
-			}
-
-			time.Sleep(50 * time.Millisecond)
-			retries++
-			continue
+			break
 		}
-
-		retries = 0
 
 		if err = j.Ack(); err != nil {
 			return err
@@ -541,7 +522,7 @@ func (i *JobIter) Next() (*queue.Job, error) {
 	return fromDelivery(&d)
 }
 
-func (i *JobIter) nextNonBlocking() (*queue.Job, error) {
+func (i *JobIter) nextWithTimeout(timeout time.Duration) (*queue.Job, error) {
 	select {
 	case d, ok := <-i.c:
 		if !ok {
@@ -549,7 +530,7 @@ func (i *JobIter) nextNonBlocking() (*queue.Job, error) {
 		}
 
 		return fromDelivery(&d)
-	default:
+	case <-time.After(timeout):
 		return nil, nil
 	}
 }
