@@ -321,6 +321,8 @@ func (s *QueueSuite) newQueueWithJobs(n int) queue.Queue {
 func (s *QueueSuite) TestDelayed() {
 	assert := assert.New(s.T())
 
+	delay := 1 * time.Second
+
 	qName := NewName()
 	q, err := s.Broker.Queue(qName)
 	assert.NoError(err)
@@ -330,14 +332,15 @@ func (s *QueueSuite) TestDelayed() {
 	assert.NoError(err)
 	err = j.Encode("hello")
 	assert.NoError(err)
-	err = q.PublishDelayed(j, 1*time.Second)
+
+	start := time.Now()
+	err = q.PublishDelayed(j, delay)
 	assert.NoError(err)
 
 	advertisedWindow := 1
 	iter, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
 
-	start := time.Now()
 	var since time.Duration
 	for {
 		j, err := iter.Next()
@@ -355,7 +358,7 @@ func (s *QueueSuite) TestDelayed() {
 		break
 	}
 
-	assert.True(since >= 1*time.Second)
+	assert.True(since >= delay)
 }
 
 func (s *QueueSuite) TestTransaction_Error() {
