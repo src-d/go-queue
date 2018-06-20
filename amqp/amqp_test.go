@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// Pilosa tests require running docker. If `docker ps` command returned an error
+// RabbitMQ tests require running docker. If `docker ps` command returned an error
 // we skip some of the tests
 var (
 	dockerIsRunning bool

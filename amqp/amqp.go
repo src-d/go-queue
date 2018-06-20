@@ -85,7 +85,6 @@ func New(url string) (queue.Broker, error) {
 	}
 
 	b := &Broker{
-		mut:  sync.RWMutex{},
 		conn: conn,
 		ch:   ch,
 		stop: make(chan struct{}),
