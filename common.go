@@ -70,7 +70,7 @@ type Queue interface {
 	PublishDelayed(*Job, time.Duration) error
 	// Transaction executes the passed TxCallback inside a transaction.
 	Transaction(TxCallback) error
-	// Consume returns a JobIter for the queue.  Ir receives the minimum
+	// Consume returns a JobIter for the queue.  It receives the minimum
 	// number of undelivered jobs the iterator will allow at any given
 	// time (see the Acknowledger interface).
 	Consume(advertisedWindow int) (JobIter, error)
