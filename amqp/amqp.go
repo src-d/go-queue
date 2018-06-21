@@ -62,6 +62,7 @@ type Broker struct {
 	conn       *amqp.Connection
 	ch         *amqp.Channel
 	connErrors chan *amqp.Error
+	chErrors   chan *amqp.Error
 	stop       chan struct{}
 	backoff    *backoff.Backoff
 }
@@ -95,38 +96,64 @@ func New(url string) (queue.Broker, error) {
 		},
 	}
 
+	b.connErrors = make(chan *amqp.Error, 1)
+	b.conn.NotifyClose(b.connErrors)
+
+	b.chErrors = make(chan *amqp.Error, 1)
+	b.ch.NotifyClose(b.chErrors)
+
 	go b.manageConnection(url)
 
 	return b, nil
 }
 
 func (b *Broker) manageConnection(url string) {
-	b.connErrors = make(chan *amqp.Error)
-	b.conn.NotifyClose(b.connErrors)
-
 	for {
 		select {
 		case err := <-b.connErrors:
-			log.Errorf(err, "amqp connection error")
-			b.mut.Lock()
-			if err != nil {
-				b.conn, b.ch = b.reconnect(url)
-				b.connErrors = make(chan *amqp.Error)
-				b.conn.NotifyClose(b.connErrors)
+			log.Errorf(err, "amqp connection error - reconnecting")
+			if err == nil {
+				break
 			}
+			b.reconnect(url)
 
-			b.mut.Unlock()
+		case err := <-b.chErrors:
+			log.Errorf(err, "amqp channel error - reopening channel")
+			if err == nil {
+				break
+			}
+			b.reopenChannel()
+
 		case <-b.stop:
 			return
 		}
 	}
 }
 
-func (b *Broker) reconnect(url string) (*amqp.Connection, *amqp.Channel) {
+func (b *Broker) reconnect(url string) {
 	b.backoff.Reset()
-	conn := b.tryConnection(url)
-	ch := b.tryChannel(conn)
-	return conn, ch
+
+	b.mut.Lock()
+	defer b.mut.Unlock()
+	// open a new connection and channel
+	b.conn = b.tryConnection(url)
+	b.connErrors = make(chan *amqp.Error, 1)
+	b.conn.NotifyClose(b.connErrors)
+
+	b.ch = b.tryChannel(b.conn)
+	b.chErrors = make(chan *amqp.Error, 1)
+	b.ch.NotifyClose(b.chErrors)
+}
+
+func (b *Broker) reopenChannel() {
+	b.backoff.Reset()
+
+	b.mut.Lock()
+	defer b.mut.Unlock()
+	// open a new channel
+	b.ch = b.tryChannel(b.conn)
+	b.chErrors = make(chan *amqp.Error, 1)
+	b.ch.NotifyClose(b.chErrors)
 }
 
 func (b *Broker) tryConnection(url string) *amqp.Connection {
@@ -136,8 +163,8 @@ func (b *Broker) tryConnection(url string) *amqp.Connection {
 			b.backoff.Reset()
 			return conn
 		}
-
 		d := b.backoff.Duration()
+
 		log.Errorf(err, "error connecting to amqp, reconnecting in %s", d)
 		time.Sleep(d)
 	}
@@ -150,23 +177,25 @@ func (b *Broker) tryChannel(conn *amqp.Connection) *amqp.Channel {
 			b.backoff.Reset()
 			return ch
 		}
-
 		d := b.backoff.Duration()
+
 		log.Errorf(err, "error creatting channel, new retry in %s", d)
 		time.Sleep(d)
 	}
 }
 
 func (b *Broker) connection() *amqp.Connection {
-	b.mut.Lock()
-	defer b.mut.Unlock()
-	return b.conn
+	b.mut.RLock()
+	conn := b.conn
+	b.mut.RUnlock()
+	return conn
 }
 
 func (b *Broker) channel() *amqp.Channel {
-	b.mut.Lock()
-	defer b.mut.Unlock()
-	return b.ch
+	b.mut.RLock()
+	ch := b.ch
+	b.mut.RUnlock()
+	return ch
 }
 
 func (b *Broker) newBuriedQueue(mainQueueName string) (q amqp.Queue, rex string, err error) {
@@ -209,7 +238,7 @@ func (b *Broker) Queue(name string) (queue.Queue, error) {
 		return nil, err
 	}
 
-	q, err := b.ch.QueueDeclare(
+	q, err := b.channel().QueueDeclare(
 		name,  // name
 		true,  // durable
 		false, // delete when unused
@@ -252,7 +281,7 @@ type Queue struct {
 }
 
 // Publish publishes the given Job to the Queue.
-func (q *Queue) Publish(j *queue.Job) error {
+func (q *Queue) Publish(j *queue.Job) (err error) {
 	if j == nil || j.Size() == 0 {
 		return queue.ErrEmptyJob.New()
 	}
@@ -266,21 +295,33 @@ func (q *Queue) Publish(j *queue.Job) error {
 		headers[DefaultConfiguration.ErrorHeader] = j.ErrorType
 	}
 
-	return q.conn.channel().Publish(
-		"",           // exchange
-		q.queue.Name, // routing key
-		false,        // mandatory
-		false,
-		amqp.Publishing{
-			DeliveryMode: amqp.Persistent,
-			MessageId:    j.ID,
-			Priority:     uint8(j.Priority),
-			Timestamp:    j.Timestamp,
-			ContentType:  j.ContentType,
-			Body:         j.Raw,
-			Headers:      headers,
-		},
-	)
+	for {
+		err = q.conn.channel().Publish(
+			"",           // exchange
+			q.queue.Name, // routing key
+			false,        // mandatory
+			false,
+			amqp.Publishing{
+				DeliveryMode: amqp.Persistent,
+				MessageId:    j.ID,
+				Priority:     uint8(j.Priority),
+				Timestamp:    j.Timestamp,
+				ContentType:  j.ContentType,
+				Body:         j.Raw,
+				Headers:      headers,
+			},
+		)
+		if err == nil {
+			break
+		}
+
+		log.Errorf(err, "publishing to %s", q.queue.Name)
+		if err != amqp.ErrClosed {
+			break
+		}
+	}
+
+	return err
 }
 
 // PublishDelayed publishes the given Job with a given delay. Delayed messages
@@ -309,20 +350,32 @@ func (q *Queue) PublishDelayed(j *queue.Job, delay time.Duration) error {
 		return err
 	}
 
-	return q.conn.channel().Publish(
-		"", // exchange
-		delayedQueue.Name,
-		false,
-		false,
-		amqp.Publishing{
-			DeliveryMode: amqp.Persistent,
-			MessageId:    j.ID,
-			Priority:     uint8(j.Priority),
-			Timestamp:    j.Timestamp,
-			ContentType:  j.ContentType,
-			Body:         j.Raw,
-		},
-	)
+	for {
+		err = q.conn.channel().Publish(
+			"", // exchange
+			delayedQueue.Name,
+			false,
+			false,
+			amqp.Publishing{
+				DeliveryMode: amqp.Persistent,
+				MessageId:    j.ID,
+				Priority:     uint8(j.Priority),
+				Timestamp:    j.Timestamp,
+				ContentType:  j.ContentType,
+				Body:         j.Raw,
+			},
+		)
+		if err == nil {
+			break
+		}
+
+		log.Errorf(err, "delay publishing to %s", q.queue.Name)
+		if err != amqp.ErrClosed {
+			break
+		}
+	}
+
+	return err
 }
 
 type jobErr struct {
