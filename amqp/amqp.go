@@ -115,21 +115,14 @@ func (b *Broker) manageConnection(url string) {
 			if err == nil {
 				break
 			}
-
-			// b.mut.Lock()
 			b.reconnect(url)
-			// b.mut.Unlock()
-			break
 
 		case err := <-b.chErrors:
 			log.Errorf(err, "amqp channel error - reopening channel")
 			if err == nil {
 				break
 			}
-
-			// b.mut.Lock()
 			b.reopenChannel()
-			// b.mut.Unlock()
 
 		case <-b.stop:
 			return
