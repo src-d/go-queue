@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// RabbitMQ tests require running docker. If `docker ps` command returned an error
-// we skip some of the tests
+// RabbitMQ tests require running docker.
+// If `docker ps` command returned an error we skip some of the tests.
 var (
 	dockerIsRunning bool
 	dockerCmdOutput string
