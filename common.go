@@ -47,7 +47,7 @@ type RepublishConditionFunc func(job *Job) bool
 // RepublishConditions alias of a list RepublishConditionFunc
 type RepublishConditions []RepublishConditionFunc
 
-// Comply checks if the Job fits any of the defined conditions.
+// Comply checks if the Job matches any of the defined conditions.
 func (c RepublishConditions) Comply(job *Job) bool {
 	if len(c) == 0 {
 		return true
