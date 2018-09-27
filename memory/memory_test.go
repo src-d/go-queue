@@ -20,7 +20,6 @@ type MemorySuite struct {
 
 func (s *MemorySuite) SetupSuite() {
 	s.BrokerURI = "memory://"
-	s.AdvWindowNotSupported = true
 }
 
 func (s *MemorySuite) TestIntegration() {
