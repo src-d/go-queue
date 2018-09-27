@@ -28,12 +28,12 @@ func init() {
 	})
 }
 
-// DefaultConfiguration contains the default configuration initalized from
+// DefaultConfiguration contains the default configuration initialized from
 // environment variables.
 var DefaultConfiguration Configuration
 
 // Configuration AMQP configuration settings, this settings are set using the
-// envinroment varabiles.
+// environment variables.
 type Configuration struct {
 	BuriedQueueSuffix    string `envconfig:"BURIED_QUEUE_SUFFIX" default:".buriedQueue"`
 	BuriedExchangeSuffix string `envconfig:"BURIED_EXCHANGE_SUFFIX" default:".buriedExchange"`
@@ -325,7 +325,7 @@ func (q *Queue) Publish(j *queue.Job) (err error) {
 }
 
 // PublishDelayed publishes the given Job with a given delay. Delayed messages
-// wont go into the buried queue if they fail.
+// will not go into the buried queue if they fail.
 func (q *Queue) PublishDelayed(j *queue.Job, delay time.Duration) error {
 	if j == nil || j.Size() == 0 {
 		return queue.ErrEmptyJob.New()
@@ -519,16 +519,14 @@ func (q *Queue) Transaction(txcb queue.TxCallback) error {
 	return ch.TxCommit()
 }
 
-// Implements Queue.  The advertisedWindow value will be the exact
-// number of undelivered jobs in transit, not just the minium.
+// Consume implements the Queue interface. The advertisedWindow value
+// is the maximum number of unacknowledged jobs
 func (q *Queue) Consume(advertisedWindow int) (queue.JobIter, error) {
 	ch, err := q.conn.connection().Channel()
 	if err != nil {
 		return nil, ErrOpenChannel.New(err)
 	}
 
-	// enforce prefetching only one job, if this is removed the whole queue
-	// will be consumed.
 	if err := ch.Qos(advertisedWindow, 0, false); err != nil {
 		return nil, err
 	}
@@ -603,7 +601,7 @@ type Acknowledger struct {
 	id  uint64
 }
 
-// Ack signals ackwoledgement.
+// Ack signals acknowledgement.
 func (a *Acknowledger) Ack() error {
 	return a.ack.Ack(a.id, false)
 }
