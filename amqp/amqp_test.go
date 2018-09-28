@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -15,11 +16,12 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// RabbitMQ tests require running docker.
+// RabbitMQ reconnect tests require running docker.
 // If `docker ps` command returned an error we skip some of the tests.
 var (
 	dockerIsRunning bool
 	dockerCmdOutput string
+	inAppVeyor      bool
 )
 
 func init() {
@@ -27,6 +29,7 @@ func init() {
 	b, err := cmd.CombinedOutput()
 
 	dockerCmdOutput, dockerIsRunning = string(b), (err == nil)
+	inAppVeyor = os.Getenv("APPVEYOR") == "True"
 }
 
 func TestAMQPSuite(t *testing.T) {
@@ -226,7 +229,7 @@ func TestAMQPRepublishBuried(t *testing.T) {
 }
 
 func TestReconnect(t *testing.T) {
-	if !dockerIsRunning {
+	if inAppVeyor || !dockerIsRunning {
 		t.Skip()
 	}
 
