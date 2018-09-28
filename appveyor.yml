@@ -16,7 +16,7 @@ install:
   - mingw32-make ci-install
 
 test_script:
-  - mingw32-make ci-script
+  - mingw32-make test
 
 build: off
 deploy: off
