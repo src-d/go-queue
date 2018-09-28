@@ -27,9 +27,8 @@ type QueueSuite struct {
 	suite.Suite
 	r rand.Rand
 
-	TxNotSupported        bool
-	AdvWindowNotSupported bool
-	BrokerURI             string
+	TxNotSupported bool
+	BrokerURI      string
 
 	Broker queue.Broker
 }
@@ -63,7 +62,7 @@ func (s *QueueSuite) TestConsume_empty() {
 	assert.NoError(iter.Close())
 }
 
-func (s *QueueSuite) TestJobIter_Next_empty() {
+func (s *QueueSuite) TestJobIter_Next_closed() {
 	assert := assert.New(s.T())
 
 	qName := NewName()
@@ -79,6 +78,50 @@ func (s *QueueSuite) TestJobIter_Next_empty() {
 	done := s.checkNextClosed(iter)
 	assert.NoError(iter.Close())
 	<-done
+}
+
+func (s *QueueSuite) TestJobIter_Next_empty() {
+	assert := assert.New(s.T())
+
+	qName := NewName()
+	q, err := s.Broker.Queue(qName)
+	assert.NoError(err)
+	assert.NotNil(q)
+
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
+	assert.NoError(err)
+	assert.NotNil(iter)
+
+	nJobs := 0
+
+	done := make(chan struct{})
+	go func() {
+		j, err := iter.Next()
+		assert.NoError(err)
+		assert.NotNil(j)
+
+		nJobs += 1
+		done <- struct{}{}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(0, nJobs)
+
+	j, err := queue.NewJob()
+	assert.NoError(err)
+
+	err = j.Encode(1)
+	assert.NoError(err)
+
+	err = q.Publish(j)
+	assert.NoError(err)
+
+	<-done
+
+	assert.Equal(1, nJobs)
+	assert.NoError(iter.Close())
 }
 
 func (s *QueueSuite) TestJob_Reject_no_requeue() {
@@ -110,17 +153,10 @@ func (s *QueueSuite) TestJob_Reject_no_requeue() {
 	err = j.Reject(false)
 	assert.NoError(err)
 
-	if s.AdvWindowNotSupported {
-		j, err := iter.Next()
-		assert.Nil(j)
-		assert.NoError(err)
-		assert.NoError(iter.Close())
-	} else {
-		done := s.checkNextClosed(iter)
-		time.Sleep(50 * time.Millisecond)
-		assert.NoError(iter.Close())
-		<-done
-	}
+	done := s.checkNextClosed(iter)
+	time.Sleep(50 * time.Millisecond)
+	assert.NoError(iter.Close())
+	<-done
 }
 
 func (s *QueueSuite) TestJob_Reject_requeue() {
@@ -385,17 +421,11 @@ func (s *QueueSuite) TestTransaction_Error() {
 	advertisedWindow := 1
 	i, err := q.Consume(advertisedWindow)
 	assert.NoError(err)
-	if s.AdvWindowNotSupported {
-		j, err := i.Next()
-		assert.Nil(j)
-		assert.NoError(err)
-		assert.NoError(i.Close())
-	} else {
-		done := s.checkNextClosed(i)
-		time.Sleep(50 * time.Millisecond)
-		assert.NoError(i.Close())
-		<-done
-	}
+
+	done := s.checkNextClosed(i)
+	time.Sleep(50 * time.Millisecond)
+	assert.NoError(i.Close())
+	<-done
 }
 
 func (s *QueueSuite) TestTransaction() {
