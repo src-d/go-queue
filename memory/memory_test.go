@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"io"
 	"testing"
 
 	"gopkg.in/src-d/go-queue.v1"
@@ -64,4 +65,35 @@ func (s *MemorySuite) TestIntegration() {
 
 	err = iter.Close()
 	assert.NoError(err)
+}
+
+func (s *MemorySuite) TestFinite() {
+	assert := assert.New(s.T())
+
+	b, err := queue.NewBroker("memoryfinite://")
+	assert.NoError(err)
+
+	qName := test.NewName()
+	q, err := b.Queue(qName)
+	assert.NoError(err)
+	assert.NotNil(q)
+
+	j, err := queue.NewJob()
+	assert.NoError(err)
+
+	j.Encode(true)
+	err = q.Publish(j)
+	assert.NoError(err)
+
+	advertisedWindow := 0 // ignored by memory brokers
+	iter, err := q.Consume(advertisedWindow)
+	assert.NoError(err)
+
+	retrievedJob, err := iter.Next()
+	assert.NoError(err)
+	assert.NoError(retrievedJob.Ack())
+
+	retrievedJob, err = iter.Next()
+	assert.Equal(io.EOF, err)
+	assert.Nil(retrievedJob)
 }
