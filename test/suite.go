@@ -4,7 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"sync"
+	"sync/atomic"
+	"testing"
 	"time"
 
 	"gopkg.in/src-d/go-queue.v1"
@@ -540,6 +543,80 @@ func (s *QueueSuite) TestRetryQueue() {
 	assert.NoError(iterMain.Close())
 	iterMain.Close()
 	<-done
+}
+
+func (s *QueueSuite) TestConcurrent() {
+	testCases := []int{1, 2, 13, 150}
+
+	for _, advertisedWindow := range testCases {
+		s.T().Run(strconv.Itoa(advertisedWindow), func(t *testing.T) {
+			assert := assert.New(t)
+
+			qName := NewName()
+			q, err := s.Broker.Queue(qName)
+			assert.NoError(err)
+			assert.NotNil(q)
+
+			var continueWG sync.WaitGroup
+			continueWG.Add(1)
+
+			var calledWG sync.WaitGroup
+
+			var calls int32
+			atomic.StoreInt32(&calls, 0)
+
+			iter, err := q.Consume(advertisedWindow)
+			assert.NoError(err)
+
+			go func() {
+				for {
+					j, err := iter.Next()
+					if queue.ErrAlreadyClosed.Is(err) {
+						return
+					}
+					assert.NoError(err)
+					if j == nil {
+						time.Sleep(300 * time.Millisecond)
+						continue
+					}
+
+					go func() {
+						// Removes 1 from calledWG, and gets locked
+						// until continueWG is released
+						atomic.AddInt32(&calls, 1)
+
+						calledWG.Done()
+						continueWG.Wait()
+
+						assert.NoError(j.Ack())
+					}()
+				}
+			}()
+
+			assert.EqualValues(0, atomic.LoadInt32(&calls))
+			calledWG.Add(advertisedWindow)
+
+			// Enqueue some jobs, 3 * advertisedWindow
+			for i := 0; i < advertisedWindow*3; i++ {
+				j, err := queue.NewJob()
+				assert.NoError(err)
+				err = j.Encode(i)
+				assert.NoError(err)
+				err = q.Publish(j)
+				assert.NoError(err)
+			}
+
+			// The first batch of calls should be exactly advertisedWindow
+			calledWG.Wait()
+			assert.EqualValues(advertisedWindow, atomic.LoadInt32(&calls))
+
+			// Let the iterator go though all the jobs, should be 3*advertisedWindow
+			calledWG.Add(2 * advertisedWindow)
+			continueWG.Done()
+			calledWG.Wait()
+			assert.EqualValues(3*advertisedWindow, atomic.LoadInt32(&calls))
+		})
+	}
 }
 
 func (s *QueueSuite) checkNextClosed(iter queue.JobIter) chan struct{} {
