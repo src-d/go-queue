@@ -127,7 +127,7 @@ func (q *Queue) Consume(advertisedWindow int) (queue.JobIter, error) {
 	}
 
 	if advertisedWindow > 0 {
-		jobIter.sem = make(chan struct{}, advertisedWindow)
+		jobIter.chn = make(chan struct{}, advertisedWindow)
 	}
 
 	return &jobIter, nil
@@ -138,7 +138,7 @@ type JobIter struct {
 	q      *Queue
 	closed bool
 	finite bool
-	sem    chan struct{}
+	chn    chan struct{}
 	*sync.RWMutex
 }
 
@@ -146,7 +146,7 @@ type JobIter struct {
 type Acknowledger struct {
 	q   *Queue
 	j   *queue.Job
-	sem chan struct{}
+	chn chan struct{}
 }
 
 // Ack is called when the Job has finished.
@@ -171,8 +171,8 @@ func (a *Acknowledger) Reject(requeue bool) error {
 }
 
 func (a *Acknowledger) release() {
-	if a.sem != nil {
-		<-a.sem
+	if a.chn != nil {
+		<-a.chn
 	}
 }
 
@@ -213,7 +213,7 @@ func (i *JobIter) next() (*queue.Job, error) {
 	}
 
 	j := i.q.jobs[i.q.idx]
-	j.Acknowledger = &Acknowledger{j: j, q: i.q, sem: i.sem}
+	j.Acknowledger = &Acknowledger{j: j, q: i.q, chn: i.chn}
 	i.q.idx++
 
 	return j, nil
@@ -228,13 +228,13 @@ func (i *JobIter) Close() error {
 }
 
 func (i *JobIter) acquire() {
-	if i.sem != nil {
-		i.sem <- struct{}{}
+	if i.chn != nil {
+		i.chn <- struct{}{}
 	}
 }
 
 func (i *JobIter) release() {
-	if i.sem != nil {
-		<-i.sem
+	if i.chn != nil {
+		<-i.chn
 	}
 }
