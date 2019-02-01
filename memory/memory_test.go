@@ -11,19 +11,19 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func TestMemorySuite(t *testing.T) {
-	suite.Run(t, new(MemorySuite))
+func TestMemoryQueueSuite(t *testing.T) {
+	suite.Run(t, new(MemoryQueueSuite))
 }
 
-type MemorySuite struct {
+type MemoryQueueSuite struct {
 	test.QueueSuite
 }
 
-func (s *MemorySuite) SetupSuite() {
+func (s *MemoryQueueSuite) SetupSuite() {
 	s.BrokerURI = "memory://"
 }
 
-func (s *MemorySuite) TestIntegration() {
+func (s *MemoryQueueSuite) TestIntegration() {
 	assert := assert.New(s.T())
 
 	qName := test.NewName()
@@ -67,7 +67,7 @@ func (s *MemorySuite) TestIntegration() {
 	assert.NoError(err)
 }
 
-func (s *MemorySuite) TestFinite() {
+func (s *MemoryQueueSuite) TestFinite() {
 	assert := assert.New(s.T())
 
 	b, err := queue.NewBroker("memory-finite://")
