@@ -5,55 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/src-d/go-queue.v1"
+	queue "gopkg.in/src-d/go-queue.v1"
 )
-
-func init() {
-	queue.Register("memory", func(uri string) (queue.Broker, error) {
-		return New(), nil
-	})
-
-	queue.Register("memoryfinite", func(uri string) (queue.Broker, error) {
-		return NewFinite(true), nil
-	})
-}
-
-// Broker is a in-memory implementation of Broker.
-type Broker struct {
-	queues map[string]queue.Queue
-	finite bool
-}
-
-// New creates a new Broker for an in-memory queue.
-func New() queue.Broker {
-	return NewFinite(false)
-}
-
-// NewFinite creates a new Broker for an in-memory queue. The argument
-// specifies if the JobIter stops on EOF or not.
-func NewFinite(finite bool) queue.Broker {
-	return &Broker{
-		queues: make(map[string]queue.Queue),
-		finite: finite,
-	}
-}
-
-// Queue returns the queue with the given name.
-func (b *Broker) Queue(name string) (queue.Queue, error) {
-	if _, ok := b.queues[name]; !ok {
-		b.queues[name] = &Queue{
-			jobs:   make([]*queue.Job, 0, 10),
-			finite: b.finite,
-		}
-	}
-
-	return b.queues[name], nil
-}
-
-// Close closes the connection in the Broker.
-func (b *Broker) Close() error {
-	return nil
-}
 
 // Queue implements a queue.Queue interface.
 type Queue struct {
@@ -63,6 +16,15 @@ type Queue struct {
 	idx                int
 	publishImmediately bool
 	finite             bool
+}
+
+// NewQueue returns a Queue
+func NewQueue(publishImmediately bool, finite bool) *Queue {
+	return &Queue{
+		jobs:               make([]*queue.Job, 0, 10),
+		publishImmediately: publishImmediately,
+		finite:             finite,
+	}
 }
 
 // Publish publishes a Job to the queue.

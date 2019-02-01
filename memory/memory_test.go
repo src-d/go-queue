@@ -4,7 +4,7 @@ import (
 	"io"
 	"testing"
 
-	"gopkg.in/src-d/go-queue.v1"
+	queue "gopkg.in/src-d/go-queue.v1"
 	"gopkg.in/src-d/go-queue.v1/test"
 
 	"github.com/stretchr/testify/assert"
@@ -70,7 +70,7 @@ func (s *MemorySuite) TestIntegration() {
 func (s *MemorySuite) TestFinite() {
 	assert := assert.New(s.T())
 
-	b, err := queue.NewBroker("memoryfinite://")
+	b, err := queue.NewBroker("memory-finite://")
 	assert.NoError(err)
 
 	qName := test.NewName()
