@@ -1,8 +1,6 @@
 package memory
 
 import (
-	"fmt"
-
 	queue "gopkg.in/src-d/go-queue.v1"
 )
 
@@ -46,8 +44,7 @@ func (b *Broker) Queue(name string) (queue.Queue, error) {
 		if !b.unbuffered {
 			b.queues[name] = NewQueue(false, b.finite)
 		} else {
-			// TODO: build UnbufferedQueue
-			return nil, fmt.Errorf("error")
+			b.queues[name] = NewUnbufferedQueue(false, b.finite)
 		}
 	}
 
