@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"gopkg.in/src-d/go-queue.v1"
+	queue "gopkg.in/src-d/go-queue.v1"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
@@ -30,8 +30,11 @@ type QueueSuite struct {
 	suite.Suite
 	r rand.Rand
 
-	TxNotSupported bool
-	BrokerURI      string
+	TxNotSupported                 bool
+	UnacknowledgedJobsNotSupported bool
+	RepublishingNotSupported       bool
+	AsyncIter                      bool
+	BrokerURI                      string
 
 	Broker queue.Broker
 }
@@ -96,21 +99,10 @@ func (s *QueueSuite) TestJobIter_Next_empty() {
 	assert.NoError(err)
 	assert.NotNil(iter)
 
-	nJobs := 0
-
-	done := make(chan struct{})
-	go func() {
-		j, err := iter.Next()
-		assert.NoError(err)
-		assert.NotNil(j)
-
-		nJobs += 1
-		done <- struct{}{}
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-
-	assert.Equal(0, nJobs)
+	jobCb := func(j *queue.Job, i int) {
+		assert.NoError(j.Ack())
+	}
+	doneIter, iter := s.iter(iter, 1, &jobCb)
 
 	j, err := queue.NewJob()
 	assert.NoError(err)
@@ -121,10 +113,12 @@ func (s *QueueSuite) TestJobIter_Next_empty() {
 	err = q.Publish(j)
 	assert.NoError(err)
 
-	<-done
+	<-doneIter
 
-	assert.Equal(1, nJobs)
+	done := s.checkNextClosed(iter)
 	assert.NoError(iter.Close())
+
+	<-done
 }
 
 func (s *QueueSuite) TestJob_Reject_no_requeue() {
@@ -135,6 +129,16 @@ func (s *QueueSuite) TestJob_Reject_no_requeue() {
 	assert.NoError(err)
 	assert.NotNil(q)
 
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
+	assert.NoError(err)
+	assert.NotNil(iter)
+
+	jobCb := func(j *queue.Job, i int) {
+		assert.NoError(j.Reject(false))
+	}
+	doneIter, iter := s.iter(iter, 1, &jobCb)
+
 	j, err := queue.NewJob()
 	assert.NoError(err)
 
@@ -144,21 +148,11 @@ func (s *QueueSuite) TestJob_Reject_no_requeue() {
 	err = q.Publish(j)
 	assert.NoError(err)
 
-	advertisedWindow := 1
-	iter, err := q.Consume(advertisedWindow)
-	assert.NoError(err)
-	assert.NotNil(iter)
-
-	j, err = iter.Next()
-	assert.NoError(err)
-	assert.NotNil(j)
-
-	err = j.Reject(false)
-	assert.NoError(err)
+	<-doneIter
 
 	done := s.checkNextClosed(iter)
-	time.Sleep(50 * time.Millisecond)
 	assert.NoError(iter.Close())
+
 	<-done
 }
 
@@ -170,6 +164,20 @@ func (s *QueueSuite) TestJob_Reject_requeue() {
 	assert.NoError(err)
 	assert.NotNil(q)
 
+	advertisedWindow := 1
+	iter, err := q.Consume(advertisedWindow)
+	assert.NoError(err)
+	assert.NotNil(iter)
+
+	jobCb := func(j *queue.Job, i int) {
+		if i == 0 {
+			assert.NoError(j.Reject(true))
+		} else {
+			assert.NoError(j.Ack())
+		}
+	}
+	doneIter, iter := s.iter(iter, 2, &jobCb)
+
 	j, err := queue.NewJob()
 	assert.NoError(err)
 
@@ -179,23 +187,12 @@ func (s *QueueSuite) TestJob_Reject_requeue() {
 	err = q.Publish(j)
 	assert.NoError(err)
 
-	advertisedWindow := 1
-	iter, err := q.Consume(advertisedWindow)
-	assert.NoError(err)
-	assert.NotNil(iter)
+	<-doneIter
 
-	j, err = iter.Next()
-	assert.NoError(err)
-	assert.NotNil(j)
-
-	err = j.Reject(true)
-	assert.NoError(err)
-
-	j, err = iter.Next()
-	assert.NoError(err)
-	assert.NotNil(j)
-
+	done := s.checkNextClosed(iter)
 	assert.NoError(iter.Close())
+
+	<-done
 }
 
 func (s *QueueSuite) TestPublish_nil() {
@@ -258,14 +255,16 @@ func (s *QueueSuite) TestPublishAndConsume_immediate_ack() {
 		ids        []string
 		priorities []queue.Priority
 		timestamps []time.Time
+		jobs       []*queue.Job
 	)
+
 	for i := 0; i < 100; i++ {
 		j, err := queue.NewJob()
 		assert.NoError(err)
 		err = j.Encode(i)
 		assert.NoError(err)
-		err = q.Publish(j)
-		assert.NoError(err)
+
+		jobs = append(jobs, j)
 		ids = append(ids, j.ID)
 		priorities = append(priorities, j.Priority)
 		timestamps = append(timestamps, j.Timestamp)
@@ -276,9 +275,7 @@ func (s *QueueSuite) TestPublishAndConsume_immediate_ack() {
 	assert.NoError(err)
 	assert.NotNil(iter)
 
-	for i := 0; i < 100; i++ {
-		j, err := iter.Next()
-		assert.NoError(err)
+	jobCb := func(j *queue.Job, i int) {
 		assert.NoError(j.Ack())
 
 		var payload int
@@ -289,13 +286,26 @@ func (s *QueueSuite) TestPublishAndConsume_immediate_ack() {
 		assert.Equal(priorities[i], j.Priority)
 		assert.Equal(timestamps[i].Unix(), j.Timestamp.Unix())
 	}
+	doneIter, iter := s.iter(iter, 100, &jobCb)
+
+	for _, j := range jobs {
+		err = q.Publish(j)
+		assert.NoError(err)
+	}
+
+	<-doneIter
 
 	done := s.checkNextClosed(iter)
 	assert.NoError(iter.Close())
+
 	<-done
 }
 
 func (s *QueueSuite) TestConsumersCanShareJobIteratorConcurrently() {
+	if s.UnacknowledgedJobsNotSupported {
+		s.T().Skip("unacknowledged job in iterator not supported")
+	}
+
 	assert := assert.New(s.T())
 	const (
 		nConsumers       int = 10
@@ -481,6 +491,10 @@ func (s *QueueSuite) TestTransaction_not_supported() {
 }
 
 func (s *QueueSuite) TestRetryQueue() {
+	if s.RepublishingNotSupported {
+		s.T().Skip("republishing on queue not supported")
+	}
+
 	assert := assert.New(s.T())
 
 	qName := NewName()
@@ -546,6 +560,10 @@ func (s *QueueSuite) TestRetryQueue() {
 }
 
 func (s *QueueSuite) TestConcurrent() {
+	if s.UnacknowledgedJobsNotSupported {
+		s.T().Skip("unacknowledged job in iterator not supported")
+	}
+
 	testCases := []int{1, 2, 13, 150}
 
 	for _, advertisedWindow := range testCases {
@@ -630,4 +648,25 @@ func (s *QueueSuite) checkNextClosed(iter queue.JobIter) chan struct{} {
 		done <- struct{}{}
 	}()
 	return done
+}
+
+func (s *QueueSuite) iter(iter queue.JobIter, n int, jobCallback *func(*queue.Job, int)) (chan struct{}, queue.JobIter) {
+	assert := assert.New(s.T())
+
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < n; i++ {
+			j, err := iter.Next()
+			assert.NoError(err)
+			assert.NotNil(j)
+
+			if jobCallback != nil {
+				(*jobCallback)(j, i)
+			}
+		}
+
+		done <- struct{}{}
+	}()
+
+	return done, iter
 }
