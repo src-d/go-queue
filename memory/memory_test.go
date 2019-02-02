@@ -97,3 +97,22 @@ func (s *MemoryQueueSuite) TestFinite() {
 	assert.Equal(io.EOF, err)
 	assert.Nil(retrievedJob)
 }
+
+func TestMemoryUnbufferedQueueSuite(t *testing.T) {
+	s := &MemoryUnbufferedQueueSuite{
+		test.QueueSuite{
+			TxNotSupported:                 true,
+			UnacknowledgedJobsNotSupported: true,
+			RepublishingNotSupported:       true,
+		},
+	}
+	suite.Run(t, s)
+}
+
+type MemoryUnbufferedQueueSuite struct {
+	test.QueueSuite
+}
+
+func (s *MemoryUnbufferedQueueSuite) SetupSuite() {
+	s.BrokerURI = "memory-unbuffered://"
+}
