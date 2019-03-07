@@ -1,4 +1,4 @@
-package queue
+package amqp
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"gopkg.in/src-d/go-queue.v1"
 	"gopkg.in/src-d/go-queue.v1/test"
 
+	"github.com/streadway/amqp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -173,6 +174,70 @@ func TestAMQPHeaders(t *testing.T) {
 
 			require.Equal(t, test.retries, job.Retries)
 			require.Equal(t, test.errorType, job.ErrorType)
+		})
+	}
+}
+
+func TestAMQPHeaderRetriesType(t *testing.T) {
+	broker, err := queue.NewBroker(testAMQPURI)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, broker.Close()) }()
+
+	q, err := broker.Queue(test.NewName())
+	require.NoError(t, err)
+
+	qa, ok := q.(*Queue)
+	require.True(t, ok)
+
+	tests := []struct {
+		name    string
+		retries interface{}
+	}{
+		{
+			name:    "int16",
+			retries: int16(42),
+		},
+		{
+			name:    "int32",
+			retries: int32(42),
+		},
+		{
+			name:    "int64",
+			retries: int64(42),
+		},
+	}
+
+	for _, test := range tests {
+		headers := amqp.Table{}
+		headers[DefaultConfiguration.RetriesHeader] = test.retries
+		err := qa.conn.channel().Publish(
+			"",            // exchange
+			qa.queue.Name, // routing key
+			false,         // mandatory
+			false,
+			amqp.Publishing{
+				DeliveryMode: amqp.Persistent,
+				MessageId:    "id",
+				Priority:     uint8(queue.PriorityNormal),
+				Timestamp:    time.Now(),
+				ContentType:  "application/msgpack",
+				Body:         []byte("gaxSZXBvc2l0b3J5SUTEEAFmXSlGxxOsFGMLs/gl7Qw="),
+				Headers:      headers,
+			},
+		)
+		require.NoError(t, err)
+	}
+
+	jobIter, err := q.Consume(len(tests))
+	require.NoError(t, err)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			job, err := jobIter.Next()
+			require.NoError(t, err)
+			require.NotNil(t, job)
+
+			require.Equal(t, int32(42), job.Retries)
 		})
 	}
 }
