@@ -1,4 +1,4 @@
-package queue
+package amqp
 
 import (
 	"fmt"
@@ -626,18 +626,49 @@ func fromDelivery(d *amqp.Delivery) (*queue.Job, error) {
 	j.Raw = d.Body
 
 	if retries, ok := d.Headers[DefaultConfiguration.RetriesHeader]; ok {
-		retries, ok := retries.(int32)
-		if !ok {
-			return nil, ErrRetrievingHeader.New(DefaultConfiguration.RetriesHeader, d.MessageId)
-		}
+		switch r := retries.(type) {
+		case int16:
+			j.Retries = int32(r)
 
-		j.Retries = retries
+		case int32:
+			j.Retries = int32(r)
+
+		case int64:
+			j.Retries = int32(r)
+
+		default:
+			err = d.Reject(false)
+			if err != nil {
+				return nil, ErrRetrievingHeader.Wrap(
+					err,
+					DefaultConfiguration.RetriesHeader,
+					d.MessageId,
+				)
+			}
+
+			return nil, ErrRetrievingHeader.New(
+				DefaultConfiguration.RetriesHeader,
+				d.MessageId,
+			)
+		}
 	}
 
 	if errorType, ok := d.Headers[DefaultConfiguration.ErrorHeader]; ok {
 		errorType, ok := errorType.(string)
 		if !ok {
-			return nil, ErrRetrievingHeader.New(DefaultConfiguration.ErrorHeader, d.MessageId)
+			err = d.Reject(false)
+			if err != nil {
+				return nil, ErrRetrievingHeader.Wrap(
+					err,
+					DefaultConfiguration.ErrorHeader,
+					d.MessageId,
+				)
+			}
+
+			return nil, ErrRetrievingHeader.New(
+				DefaultConfiguration.ErrorHeader,
+				d.MessageId,
+			)
 		}
 
 		j.ErrorType = errorType
