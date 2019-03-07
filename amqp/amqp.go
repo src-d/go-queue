@@ -2,6 +2,7 @@ package amqp
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -634,7 +635,11 @@ func fromDelivery(d *amqp.Delivery) (*queue.Job, error) {
 			j.Retries = int32(r)
 
 		case int64:
-			j.Retries = int32(r)
+			if r <= math.MaxInt32 {
+				j.Retries = int32(r)
+			} else {
+				j.Retries = 0
+			}
 
 		default:
 			err = d.Reject(false)
