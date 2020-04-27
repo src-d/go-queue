@@ -46,18 +46,13 @@ type Acknowledger interface {
 
 // NewJob creates a new Job with default values, a new unique ID and current
 // timestamp.
-func NewJob() (*Job, error) {
-	u, err := uuid.NewV4()
-	if err != nil {
-		return nil, err
-	}
-
+func NewJob() *Job {
 	return &Job{
-		ID:          u.String(),
+		ID:          uuid.NewV4().String(),
 		Priority:    PriorityNormal,
 		Timestamp:   time.Now(),
 		ContentType: msgpackContentType,
-	}, nil
+	}
 }
 
 // SetPriority sets job priority

@@ -61,10 +61,9 @@ func TestNewAMQPBroker_bad_url(t *testing.T) {
 
 func sendJobs(assert *assert.Assertions, n int, p queue.Priority, q queue.Queue) {
 	for i := 0; i < n; i++ {
-		j, err := queue.NewJob()
-		assert.NoError(err)
+		j := queue.NewJob()
 		j.SetPriority(p)
-		err = j.Encode(i)
+		err := j.Encode(i)
 		assert.NoError(err)
 		err = q.Publish(j)
 		assert.NoError(err)
@@ -153,8 +152,7 @@ func TestAMQPHeaders(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		job, err := queue.NewJob()
-		require.NoError(t, err)
+		job := queue.NewJob()
 
 		job.Retries = test.retries
 		job.ErrorType = test.errorType
@@ -267,8 +265,7 @@ func TestAMQPRepublishBuried(t *testing.T) {
 	}
 
 	for _, utest := range tests {
-		job, err := queue.NewJob()
-		require.NoError(t, err)
+		job := queue.NewJob()
 
 		job.Raw = []byte(utest.payload)
 
@@ -321,8 +318,7 @@ func TestReconnect(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		job, err := queue.NewJob()
-		require.NoError(t, err)
+		job := queue.NewJob()
 
 		job.Raw = []byte(test.payload)
 
@@ -340,8 +336,7 @@ func TestReconnect(t *testing.T) {
 		if job, err := jobIter.Next(); err != nil {
 			t.Log(err)
 
-			job, err = queue.NewJob()
-			require.NoError(t, err)
+			job = queue.NewJob()
 			job.Raw = []byte("check connection - retry till we connect")
 			err = q.Publish(job)
 			require.NoError(t, err)

@@ -19,10 +19,7 @@ func ExampleMemoryQueue() {
 		log.Fatal(err)
 	}
 
-	j, err := queue.NewJob()
-	if err != nil {
-		log.Fatal(err)
-	}
+	j := queue.NewJob()
 
 	if err := j.Encode("hello world!"); err != nil {
 		log.Fatal(err)

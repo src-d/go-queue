@@ -614,10 +614,7 @@ func (a *Acknowledger) Reject(requeue bool) error {
 }
 
 func fromDelivery(d *amqp.Delivery) (*queue.Job, error) {
-	j, err := queue.NewJob()
-	if err != nil {
-		return nil, err
-	}
+	j := queue.NewJob()
 
 	j.ID = d.MessageId
 	j.Priority = queue.Priority(d.Priority)
@@ -632,7 +629,7 @@ func fromDelivery(d *amqp.Delivery) (*queue.Job, error) {
 			j.Retries = int32(r)
 
 		case int32:
-			j.Retries = int32(r)
+			j.Retries = r
 
 		case int64:
 			if r <= math.MaxInt32 {
@@ -642,7 +639,7 @@ func fromDelivery(d *amqp.Delivery) (*queue.Job, error) {
 			}
 
 		default:
-			err = d.Reject(false)
+			err := d.Reject(false)
 			if err != nil {
 				return nil, ErrRetrievingHeader.Wrap(
 					err,
@@ -661,7 +658,7 @@ func fromDelivery(d *amqp.Delivery) (*queue.Job, error) {
 	if errorType, ok := d.Headers[DefaultConfiguration.ErrorHeader]; ok {
 		errorType, ok := errorType.(string)
 		if !ok {
-			err = d.Reject(false)
+			err := d.Reject(false)
 			if err != nil {
 				return nil, ErrRetrievingHeader.Wrap(
 					err,
