@@ -3,14 +3,13 @@ package test
 import (
 	"errors"
 	"fmt"
+	"gopkg.in/src-d/go-queue.v1"
 	"math/rand"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"gopkg.in/src-d/go-queue.v1"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"

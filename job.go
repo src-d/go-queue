@@ -6,7 +6,7 @@ import (
 
 	"gopkg.in/src-d/go-errors.v1"
 
-	"github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
@@ -48,7 +48,7 @@ type Acknowledger interface {
 // timestamp.
 func NewJob() *Job {
 	return &Job{
-		ID:          uuid.NewV4().String(),
+		ID:          uuid.New().String(),
 		Priority:    PriorityNormal,
 		Timestamp:   time.Now(),
 		ContentType: msgpackContentType,
