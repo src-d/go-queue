@@ -1,4 +1,4 @@
-module gopkg.in/src-d/go-queue.v1
+module gopkg.in/src-d/go-queue.v2
 
 go 1.14
 
